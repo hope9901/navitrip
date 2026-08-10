@@ -16,12 +16,20 @@ interface NaverLocalSearchResponse {
   items?: NaverLocalSearchItem[];
 }
 
+interface NaverGeocodeAddressElement {
+  types: string[];
+  longName: string;
+  shortName: string;
+  code: string;
+}
+
 interface NaverGeocodeAddress {
   roadAddress?: string;
   jibunAddress?: string;
   englishAddress?: string;
   x: string; // Longitude
   y: string; // Latitude
+  addressElements?: NaverGeocodeAddressElement[];
 }
 
 interface NaverGeocodeResponse {
@@ -121,7 +129,7 @@ async function searchLocal(query: string): Promise<Place[]> {
 }
 
 async function geocodeAddress(query: string): Promise<Place[]> {
-  const mapClientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || process.env.NAVER_CLIENT_ID;
+  const mapClientId = process.env.NAVER_CLIENT_ID || process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
   const mapClientSecret = process.env.NAVER_CLIENT_SECRET;
 
   if (!mapClientId || !mapClientSecret) {
@@ -211,7 +219,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       items: [],
       error: 'NAVER_SEARCH_API_FAILED',
-      message: '장소 검색 API 호출에 실패했습니다.',
+      message: '장소 및 주소 검색 API 호출에 실패했습니다.',
     });
   }
 
