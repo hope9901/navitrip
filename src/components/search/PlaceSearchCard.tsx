@@ -2,7 +2,7 @@
 
 import React, { useState, useId } from 'react';
 import { Place } from '@/types/itinerary';
-import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, AlertCircle } from 'lucide-react';
+import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, AlertCircle, X } from 'lucide-react';
 
 interface PlaceSearchCardProps {
   onAddPlace: (place: Place) => void;
@@ -17,7 +17,14 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
   const [hasSearched, setHasSearched] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
-  const [addedMap, setAddedMap] = useState<Record<string, boolean>>({});
+
+  const resetSearch = () => {
+    setQuery('');
+    setResults([]);
+    setHasSearched(false);
+    setErrorMsg(null);
+    setWarningMsg(null);
+  };
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -96,10 +103,7 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
   const handleAdd = (e: React.MouseEvent, place: Place) => {
     e.stopPropagation();
     onAddPlace(place);
-    setAddedMap((prev) => ({ ...prev, [place.id]: true }));
-    setTimeout(() => {
-      setAddedMap((prev) => ({ ...prev, [place.id]: false }));
-    }, 1500);
+    resetSearch();
   };
 
   const handleCardClick = (place: Place) => {
@@ -123,6 +127,18 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
           className="w-full pl-10 pr-24 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-inner"
         />
         <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+
+        {query && (
+          <button
+            type="button"
+            onClick={resetSearch}
+            className="absolute right-16 top-3 text-slate-400 hover:text-slate-200 transition-all"
+            title="검색어 및 결과 초기화"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+
         <button
           type="submit"
           disabled={loading || !query.trim()}
@@ -159,7 +175,6 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
             </div>
           ) : (
             results.map((place) => {
-              const isAdded = addedMap[place.id];
               const isAddressType = place.type === 'address';
 
               return (
@@ -238,14 +253,10 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
                     <button
                       type="button"
                       onClick={(e) => handleAdd(e, place)}
-                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
-                        isAdded
-                          ? 'bg-emerald-500 text-white scale-105'
-                          : 'bg-emerald-600/90 hover:bg-emerald-500 text-white active:scale-95'
-                      }`}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/90 hover:bg-emerald-500 text-white transition-all shadow-sm active:scale-95"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>{isAdded ? '추가됨!' : '일정에 추가'}</span>
+                      <span>일정에 추가</span>
                     </button>
                   </div>
                 </div>
