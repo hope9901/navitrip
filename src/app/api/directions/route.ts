@@ -80,15 +80,27 @@ async function fetchSegmentRoute(
     });
 
     if (!res.ok) {
+      const errText = await res.text();
+      console.warn('[Directions API] Response HTTP Not OK:', res.status, errText);
       return fallbackSegment;
     }
 
     const data = await res.json();
-    const route = data.route?.trafast?.[0] || data.route?.traoptimal?.[0] || data.route?.summary;
 
-    if (route) {
-      const summary = route.summary;
-      const path: Array<[number, number]> = (route.path || []).map(([lng, lat]: [number, number]) => [lat, lng]);
+    if (data.code !== 0 && data.code !== '0') {
+      console.warn('[Directions API] Returned non-zero code:', data.code, data.message);
+    }
+
+    const traObj =
+      data.route?.trafast?.[0] ||
+      data.route?.traoptimal?.[0] ||
+      data.route?.traoption?.[0] ||
+      data.route?.tracomfort?.[0];
+
+    if (traObj && traObj.summary && Array.isArray(traObj.path) && traObj.path.length > 0) {
+      const summary = traObj.summary;
+      // Naver Driving API returns path as [longitude, latitude]. Map to [latitude, longitude] for Naver Maps LatLng:
+      const path: Array<[number, number]> = traObj.path.map(([lng, lat]: [number, number]) => [lat, lng]);
       const durationSec = Math.round((summary.duration || 0) / 1000);
 
       return {
@@ -96,13 +108,13 @@ async function fetchSegmentRoute(
         durationSeconds: durationSec,
         formattedDistance: formatDistance(summary.distance),
         formattedDuration: formatDuration(durationSec),
-        path: path.length > 0 ? path : [[start.lat, start.lng], [goal.lat, goal.lng]],
+        path,
       };
     }
 
     return fallbackSegment;
   } catch (err) {
-    console.warn('[Directions] Failed to fetch segment, using estimation:', err);
+    console.warn('[Directions API] Exception occurred, using fallback estimation:', err);
     return fallbackSegment;
   }
 }

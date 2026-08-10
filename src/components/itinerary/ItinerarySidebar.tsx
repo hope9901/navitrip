@@ -54,6 +54,7 @@ export default function ItinerarySidebar({
   const [copiedShareUrl, setCopiedShareUrl] = useState(false);
   const [isJustSaved, setIsJustSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [pendingDeleteDayIdx, setPendingDeleteDayIdx] = useState<number | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -124,6 +125,7 @@ export default function ItinerarySidebar({
       { day: prev.length + 1, blocks: [] },
     ]);
     setActiveDayIndex(days.length);
+    setPendingDeleteDayIdx(null);
   };
 
   const handleRemoveDay = (dayIdx: number) => {
@@ -131,6 +133,24 @@ export default function ItinerarySidebar({
     setDays((prev) => prev.filter((_, idx) => idx !== dayIdx));
     if (activeDayIndex >= days.length - 1) {
       setActiveDayIndex(Math.max(0, days.length - 2));
+    }
+    setPendingDeleteDayIdx(null);
+  };
+
+  const handleDayTabClick = (idx: number) => {
+    if (pendingDeleteDayIdx === idx) {
+      // 2nd tap on red tab: execute deletion
+      handleRemoveDay(idx);
+      return;
+    }
+
+    if (activeDayIndex === idx && days.length > 1) {
+      // 1st tap on active day tab: turn red for deletion confirmation
+      setPendingDeleteDayIdx(idx);
+    } else {
+      // Tap on another day: switch active tab & reset pending delete
+      setActiveDayIndex(idx);
+      setPendingDeleteDayIdx(null);
     }
   };
 
@@ -280,32 +300,50 @@ export default function ItinerarySidebar({
 
       {/* Day Selector Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-800/80 custom-scrollbar">
-        {days.map((dayItem, idx) => (
-          <div key={idx} className="relative group shrink-0">
-            <button
-              type="button"
-              onClick={() => setActiveDayIndex(idx)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                activeDayIndex === idx
-                  ? 'bg-emerald-600 text-white shadow-md'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800'
-              }`}
-            >
-              <Calendar className="w-3 h-3" />
-              <span>Day {idx + 1}</span>
-            </button>
-            {days.length > 1 && (
+        {days.map((dayItem, idx) => {
+          const isPendingDelete = pendingDeleteDayIdx === idx;
+          const isActive = activeDayIndex === idx;
+
+          return (
+            <div key={idx} className="relative group shrink-0">
               <button
                 type="button"
-                onClick={() => handleRemoveDay(idx)}
-                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-slate-800 hover:bg-rose-500 text-slate-400 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-[10px]"
-                title="일차 삭제"
+                onClick={() => handleDayTabClick(idx)}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  isPendingDelete
+                    ? 'bg-rose-600 text-white border border-rose-500 shadow-md animate-pulse ring-2 ring-rose-500/50'
+                    : isActive
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800'
+                }`}
               >
-                ✕
+                <Calendar className="w-3 h-3" />
+                <span>{isPendingDelete ? `Day ${idx + 1} 삭제` : `Day ${idx + 1}`}</span>
               </button>
-            )}
-          </div>
-        ))}
+              {days.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isPendingDelete) {
+                      handleRemoveDay(idx);
+                    } else {
+                      setPendingDeleteDayIdx(idx);
+                    }
+                  }}
+                  className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center transition-all text-[10px] ${
+                    isPendingDelete
+                      ? 'bg-rose-500 text-white ring-2 ring-white opacity-100'
+                      : 'bg-slate-800 hover:bg-rose-500 text-slate-400 hover:text-white opacity-80 md:opacity-0 group-hover:opacity-100'
+                  }`}
+                  title="일차 삭제"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          );
+        })}
 
         <button
           type="button"
