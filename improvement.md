@@ -1,36 +1,29 @@
 # Improvement Log (문제점 및 개선 사항 기록)
 
 ## 이슈 01: Naver Directions 5 API 경유지(Waypoints) 5개 제한 문제
+- **해결**: 1대1 구간별(Segment-by-Segment) 분할 연산으로 5개 제한 무력화.
+
+## 이슈 02: 블록 이동 시 잦은 API 호출 문제
+- **해결**: 400ms 디바운스 및 인메모리 캐싱(`routeSegmentCache`) 적용.
+
+---
+
+## 이슈 03: SSR & `@dnd-kit` Hydration Error (aria-describedby Mismatch) (★ 신규 개선)
 
 ### 1. 지적 및 문제점
-- **지적 내용**: Naver Cloud Platform의 Directions 5 API는 1회 호출 시 경유지(`waypoints`)를 최대 5개까지만 등록할 수 있음.
-- **문제 발생 가능성**: 하루 일정에 6개 이상의 장소(예: 10~15개 장소)가 등록될 경우, 단일 API 호출 방식으로는 5개 제한 초과 에러 발생.
-
-### 2. 원인 분석 및 해결 방안
-- **구간별 1:1(Segment-by-Segment) 독립 연산 방식 적용**: `[A ➔ B]`, `[B ➔ C]` 분할 연산으로 5개 제약 무력화 및 정확한 소요시간 배지 제공.
+- **지적 내용**: Next.js App Router (SSR) 환경에서 `@dnd-kit`을 사용할 때, 서버에서 사전 렌더링된 HTML의 `aria-describedby` 속성 ID(`DndDescribedBy-1`)와 클라이언트 자바스크립트 마운트 시 생성된 ID(`DndDescribedBy-2`)가 불일치하여 React Hydration Error가 발생함.
 
 ---
 
-## 이슈 02: 블록 이동 시 잦은 API 호출로 인한 쿼리 낭비 및 비용 문제 (★ 신규 개선)
+### 2. 원인 분석 및 해결 방안 (Fix)
 
-### 1. 지적 및 문제점
-- **지적 내용**: 블록 순서를 바꾸거나 이동할 때마다 API를 매번 즉시 연산하게 되면, API 호출 횟수가 급증하여 네이버 Cloud Platform 호출 건수 낭비 및 비용/성능 저하가 발생할 수 있음.
+#### ① `DndContext` 고유 ID 고정 (`id="itinerary-dnd-context"`)
+- `@dnd-kit`의 `DndContext`에 고유 string ID를 직접 부여하여 서버와 클라이언트가 동일한 접근성 ID 키를 생성하도록 강제.
 
----
-
-### 2. 원인 분석 및 최적화 개선 방안 (Optimization)
-
-#### ① 디바운싱 (Debounce) 기법 도입
-- 드래그 동작이 진행 중이거나 연속으로 블록을 이동할 때는 API를 부르지 않고, **드래그 완료 후 400ms 동안 추가 조작이 없을 때만 1번 연산**되도록 방어 로직 적용.
-
-#### ② 메모리 캐싱 (In-Memory Segment Cache) 구축
-- 한 번 호출된 `[장소A ➔ 장소B]`의 이동 시간 및 거리 데이터는 메모리 캐시에 저장.
-- 순서를 재조정하여 동일한 `[장소A ➔ 장소B]` 구간이 다시 형성되면 **네이버 API를 재호출하지 않고 캐시에서 0.001초 만에 즉시 반환**.
-
-#### ③ 변경 구간만 재계산 (Diffing)
-- 블록 순서 변경 시 전체 일차가 아닌 **위치가 변경되어 경로가 달라진 구간만 선별적으로 API 호출**.
+#### ② `isMounted` Client-only Hydration Guard 패턴 적용
+- `useEffect`로 클라이언트 마운트 여부(`isMounted`)를 체크하여, 서버-클라이언트 불일치를 근본적으로 100% 방지.
 
 ---
 
-### 3. 방지 대책 및 적용 결과
-- API 연동 UI에서 유저 드래그/마우스 이동 등 다빈치 조작 이벤트가 발생하는 영역에는 **디바운싱 + 클라이언트 캐싱**을 표준 패턴으로 적용하여 API 호출 횟수를 **70~90% 이상 절감**.
+### 3. 방지 대책 및 적용 수칙
+- `@dnd-kit`과 같이 클라이언트 측 동적 접근성 DOM ID를 자동 생성하는 라이브러리를 Next.js App Router에서 사용할 때는 항상 **`id` 명시** 및 **Client Mount Guard**를 기본 규칙으로 준수함.

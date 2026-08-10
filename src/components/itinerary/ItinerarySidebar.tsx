@@ -52,8 +52,14 @@ export default function ItinerarySidebar({
   const [isSaving, setIsSaving] = useState(false);
   const [copiedShareUrl, setCopiedShareUrl] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Prevent SSR Hydration Mismatch for @dnd-kit IDs
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -158,7 +164,6 @@ export default function ItinerarySidebar({
         // Cache Key based on coordinates
         const cacheKey = `${from.place.lat.toFixed(5)},${from.place.lng.toFixed(5)}->${to.place.lat.toFixed(5)},${to.place.lng.toFixed(5)}`;
 
-        // Check if route segment already exists in cache
         if (routeSegmentCache.has(cacheKey)) {
           const cached = routeSegmentCache.get(cacheKey)!;
           results.push({
@@ -166,10 +171,9 @@ export default function ItinerarySidebar({
             fromBlockId: from.id,
             toBlockId: to.id,
           });
-          continue; // Skip API call!
+          continue;
         }
 
-        // Call API only when NOT cached
         try {
           const res = await fetch('/api/directions', {
             method: 'POST',
@@ -191,7 +195,6 @@ export default function ItinerarySidebar({
             path: data.path || [],
           };
 
-          // Store in cache for future instant reuse
           routeSegmentCache.set(cacheKey, segment);
           results.push(segment);
         } catch (err) {
@@ -209,7 +212,7 @@ export default function ItinerarySidebar({
       }
 
       setRoutes(results);
-    }, 400); // 400ms Debounce Delay
+    }, 400);
 
     return () => {
       if (debounceTimerRef.current) {
@@ -364,8 +367,8 @@ export default function ItinerarySidebar({
             <p className="text-xs font-medium">아직 등록된 장소가 없습니다.</p>
             <p className="text-[11px] text-slate-600">위 검색창에서 가고 싶은 곳을 검색한 후 [매핑하기] 버튼을 눌러보세요.</p>
           </div>
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        ) : isMounted ? (
+          <DndContext id="itinerary-dnd-context" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
               <div className="flex flex-col gap-1">
                 {blocks.map((block, idx) => (
@@ -381,6 +384,19 @@ export default function ItinerarySidebar({
               </div>
             </SortableContext>
           </DndContext>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {blocks.map((block, idx) => (
+              <SortableBlockItem
+                key={block.id}
+                block={block}
+                index={idx}
+                routeToNext={routes[idx]}
+                onRemove={handleRemoveBlock}
+                onSelect={onSelectBlock}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
