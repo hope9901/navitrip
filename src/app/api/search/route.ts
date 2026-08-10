@@ -33,10 +33,15 @@ interface NaverLocalSearchItem {
   mapy: string;
 }
 
-interface NaverLocalSearchResponse {
-  items?: NaverLocalSearchItem[];
+interface ApiHubErrorResponse {
+  error?: {
+    errorCode?: string;
+    message?: string;
+    details?: string;
+  };
   errorCode?: string;
   errorMessage?: string;
+  items?: NaverLocalSearchItem[];
 }
 
 interface NaverGeocodeAddressElement {
@@ -78,8 +83,24 @@ function normalizeStr(str?: string): string {
   return str.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-function isValidKoreaCoordinate(lat: number, lng: number): boolean {
-  return !isNaN(lat) && !isNaN(lng) && lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132;
+function parseLocalCoordinate(mapx: string, mapy: string): { lat: number; lng: number } | null {
+  let lng = Number(mapx);
+  let lat = Number(mapy);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+
+  if (Math.abs(lng) > 1000) {
+    lng /= 1e7;
+  }
+
+  if (Math.abs(lat) > 1000) {
+    lat /= 1e7;
+  }
+
+  const valid = lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132;
+  return valid ? { lat, lng } : null;
 }
 
 function isDuplicate(a: Place, b: Place): boolean {
@@ -108,17 +129,22 @@ async function searchLocal(query: string): Promise<Place[]> {
     throw new NaverApiError('localSearch', 'NOT_CONFIGURED');
   }
 
+  const searchUrl = new URL('https://naverapihub.apigw.ntruss.com/search/v1/local');
+  searchUrl.searchParams.set('query', query);
+  searchUrl.searchParams.set('display', '5');
+  searchUrl.searchParams.set('start', '1');
+  searchUrl.searchParams.set('sort', 'random');
+  searchUrl.searchParams.set('format', 'json');
+
   let res: Response;
   try {
-    res = await fetch(
-      `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=5&start=1&sort=random`,
-      {
-        headers: {
-          'X-Naver-Client-Id': searchClientId,
-          'X-Naver-Client-Secret': searchClientSecret,
-        },
-      }
-    );
+    res = await fetch(searchUrl, {
+      headers: {
+        'X-NCP-APIGW-API-KEY-ID': searchClientId,
+        'X-NCP-APIGW-API-KEY': searchClientSecret,
+      },
+      cache: 'no-store',
+    });
   } catch (err) {
     console.error('[localSearch] Network fetch error:', err);
     throw new NaverApiError('localSearch', 'UPSTREAM_ERROR');
@@ -128,9 +154,9 @@ async function searchLocal(query: string): Promise<Place[]> {
     let naverCode = 'UNKNOWN';
     let naverMsg = 'UNKNOWN';
     try {
-      const errJson = await res.json();
-      naverCode = String(errJson.errorCode || errJson.code || 'UNKNOWN');
-      naverMsg = String(errJson.errorMessage || errJson.message || 'UNKNOWN');
+      const errorBody = (await res.json()) as ApiHubErrorResponse;
+      naverCode = errorBody.error?.errorCode ?? errorBody.errorCode ?? 'UNKNOWN';
+      naverMsg = errorBody.error?.message ?? errorBody.error?.details ?? errorBody.errorMessage ?? 'UNKNOWN';
     } catch {
       // ignore json parse error
     }
@@ -145,7 +171,7 @@ async function searchLocal(query: string): Promise<Place[]> {
     throw new NaverApiError('localSearch', code, res.status, naverCode, naverMsg);
   }
 
-  const data: NaverLocalSearchResponse = await res.json();
+  const data: ApiHubErrorResponse = await res.json();
   const rawItems = data.items || [];
   const places: Place[] = [];
 
@@ -153,12 +179,10 @@ async function searchLocal(query: string): Promise<Place[]> {
     const item = rawItems[idx];
     const cleanTitle = item.title.replace(/<[^>]*>?/gm, '');
 
-    const lng = Number(item.mapx) / 1e7;
-    const lat = Number(item.mapy) / 1e7;
-
-    if (!isValidKoreaCoordinate(lat, lng)) {
+    const coords = parseLocalCoordinate(item.mapx, item.mapy);
+    if (!coords) {
       console.warn(
-        `[searchLocal] Invalid coordinates excluded for place '${cleanTitle}': lat=${lat}, lng=${lng}`
+        `[searchLocal] Invalid coordinates excluded for place '${cleanTitle}': mapx=${item.mapx}, mapy=${item.mapy}`
       );
       continue;
     }
@@ -170,8 +194,8 @@ async function searchLocal(query: string): Promise<Place[]> {
       category: item.category || '장소',
       address: item.address,
       roadAddress: item.roadAddress || undefined,
-      lat,
-      lng,
+      lat: coords.lat,
+      lng: coords.lng,
       link: item.link && item.link.trim() ? item.link.trim() : undefined,
       telephone: item.telephone && item.telephone.trim() ? item.telephone.trim() : undefined,
       mapx: item.mapx,
@@ -237,7 +261,8 @@ async function geocodeAddress(query: string): Promise<Place[]> {
     const lng = Number(addr.x);
     const lat = Number(addr.y);
 
-    if (!isValidKoreaCoordinate(lat, lng)) {
+    const valid = lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132;
+    if (!valid) {
       console.warn(
         `[geocodeAddress] Invalid coordinates excluded for address '${addr.roadAddress || addr.jibunAddress}': lat=${lat}, lng=${lng}`
       );

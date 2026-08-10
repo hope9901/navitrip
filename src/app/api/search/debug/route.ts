@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+interface ApiHubErrorResponse {
+  error?: {
+    errorCode?: string;
+    message?: string;
+    details?: string;
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  items?: unknown[];
+}
+
 export async function GET(request: NextRequest) {
   if (process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Not Found' }, { status: 404 });
@@ -31,16 +42,21 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    const searchUrl = new URL('https://naverapihub.apigw.ntruss.com/search/v1/local');
+    searchUrl.searchParams.set('query', query);
+    searchUrl.searchParams.set('display', '5');
+    searchUrl.searchParams.set('start', '1');
+    searchUrl.searchParams.set('sort', 'random');
+    searchUrl.searchParams.set('format', 'json');
+
     try {
-      const res = await fetch(
-        `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=5&start=1&sort=random`,
-        {
-          headers: {
-            'X-Naver-Client-Id': searchClientId!,
-            'X-Naver-Client-Secret': searchClientSecret!,
-          },
-        }
-      );
+      const res = await fetch(searchUrl, {
+        headers: {
+          'X-NCP-APIGW-API-KEY-ID': searchClientId!,
+          'X-NCP-APIGW-API-KEY': searchClientSecret!,
+        },
+        cache: 'no-store',
+      });
 
       if (!res.ok) {
         let code = 'UPSTREAM_ERROR';
@@ -50,8 +66,10 @@ export async function GET(request: NextRequest) {
 
         let naverErrorCode = 'UNKNOWN';
         try {
-          const errJson = await res.json();
-          naverErrorCode = String(errJson.errorCode || errJson.code || 'UNKNOWN');
+          const errJson = (await res.json()) as ApiHubErrorResponse;
+          naverErrorCode = String(
+            errJson.error?.errorCode ?? errJson.errorCode ?? 'UNKNOWN'
+          );
         } catch {
           // ignore
         }
@@ -66,7 +84,7 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      const data = await res.json();
+      const data = (await res.json()) as ApiHubErrorResponse;
       return NextResponse.json({
         service: 'localSearch',
         configured: true,
