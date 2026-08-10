@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import NaverMap from '@/components/map/NaverMap';
 import MobileBottomSheet from '@/components/itinerary/MobileBottomSheet';
-import { Place, ItineraryBlock, DayItinerary, RouteSegment } from '@/types/itinerary';
+import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData } from '@/types/itinerary';
 
 export default function HomePage() {
   const [planTitle, setPlanTitle] = useState('순천만 힐링 여행');
@@ -70,6 +70,26 @@ export default function HomePage() {
     setSelectedPlace(block.place);
   };
 
+  const handleLoadPlan = (plan: PlanData) => {
+    setPlanTitle(plan.title || '불러온 여행 일정');
+    setPlanId(plan.id);
+    if (plan.days && plan.days.length > 0) {
+      setDays(plan.days);
+      setActiveDayIndex(0);
+    }
+  };
+
+  const handleNewPlan = () => {
+    setPlanTitle('새 여행 일정');
+    setPlanId(undefined);
+    setDays([
+      { day: 1, blocks: [] },
+      { day: 2, blocks: [] },
+    ]);
+    setActiveDayIndex(0);
+    setSelectedPlace(null);
+  };
+
   const commonProps = {
     planTitle,
     setPlanTitle,
@@ -81,6 +101,8 @@ export default function HomePage() {
     routes,
     planId,
     onPlanSaved: (newId: string) => setPlanId(newId),
+    onLoadPlan: handleLoadPlan,
+    onNewPlan: handleNewPlan,
   };
 
   return (

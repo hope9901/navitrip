@@ -10,6 +10,13 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
+export interface SavedPlanSummary {
+  id: string;
+  title: string;
+  updatedAt?: string;
+  placeCount: number;
+}
+
 // Helper function to save plan to Supabase or LocalStorage
 export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLocalFallback: boolean }> {
   const planId = plan.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -47,7 +54,7 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLoca
   return { id: planId, isLocalFallback: true };
 }
 
-// Helper function to load plan from Supabase or LocalStorage
+// Helper function to load a single plan from Supabase or LocalStorage
 export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
   if (isSupabaseConfigured && supabase) {
     try {
@@ -84,4 +91,73 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
   }
 
   return null;
+}
+
+// Helper function to list all saved plans from Supabase and LocalStorage
+export async function listSavedPlansFromDB(): Promise<SavedPlanSummary[]> {
+  const summaries: SavedPlanSummary[] = [];
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('plans')
+        .select('id, title, updated_at, days')
+        .order('updated_at', { ascending: false })
+        .limit(30);
+
+      if (!error && data) {
+        for (const item of data) {
+          let count = 0;
+          if (Array.isArray(item.days)) {
+            count = item.days.reduce(
+              (acc: number, d: { blocks?: unknown[] }) => acc + (d.blocks?.length || 0),
+              0
+            );
+          }
+          summaries.push({
+            id: item.id,
+            title: item.title || '제목 없음',
+            updatedAt: item.updated_at,
+            placeCount: count,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Supabase list error, checking LocalStorage fallback:', err);
+    }
+  }
+
+  // LocalStorage Fallback
+  if (typeof window !== 'undefined') {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('travel_plan_')) {
+        const val = localStorage.getItem(key);
+        if (val) {
+          try {
+            const parsed = JSON.parse(val);
+            if (!summaries.some((s) => s.id === parsed.id)) {
+              let count = 0;
+              if (Array.isArray(parsed.days)) {
+                count = parsed.days.reduce(
+                  (acc: number, d: { blocks?: unknown[] }) => acc + (d.blocks?.length || 0),
+                  0
+                );
+              }
+              summaries.push({
+                id: parsed.id,
+                title: parsed.title || '제목 없음',
+                updatedAt: parsed.updatedAt || parsed.created_at,
+                placeCount: count,
+              });
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  }
+
+  return summaries;
 }

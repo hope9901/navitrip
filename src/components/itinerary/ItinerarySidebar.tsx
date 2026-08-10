@@ -19,8 +19,22 @@ import {
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData } from '@/types/itinerary';
 import SortableBlockItem from './SortableBlockItem';
 import PlaceSearchCard from '../search/PlaceSearchCard';
-import { Plus, Share2, Calendar, MapPin, Navigation, Check, Sparkles, Save } from 'lucide-react';
-import { savePlanToDB } from '@/lib/supabase';
+import {
+  Plus,
+  Share2,
+  Calendar,
+  MapPin,
+  Navigation,
+  Check,
+  Sparkles,
+  Save,
+  FolderOpen,
+  FolderPlus,
+  Loader2,
+  X,
+  Clock,
+} from 'lucide-react';
+import { savePlanToDB, loadPlanFromDB, listSavedPlansFromDB, SavedPlanSummary } from '@/lib/supabase';
 
 interface ItinerarySidebarProps {
   planTitle: string;
@@ -33,6 +47,8 @@ interface ItinerarySidebarProps {
   routes: RouteSegment[];
   planId?: string;
   onPlanSaved?: (newId: string) => void;
+  onLoadPlan?: (plan: PlanData) => void;
+  onNewPlan?: () => void;
 }
 
 export default function ItinerarySidebar({
@@ -46,6 +62,8 @@ export default function ItinerarySidebar({
   routes,
   planId,
   onPlanSaved,
+  onLoadPlan,
+  onNewPlan,
 }: ItinerarySidebarProps) {
   const titleInputId = useId();
   const dndContextId = useId();
@@ -55,6 +73,11 @@ export default function ItinerarySidebar({
   const [isJustSaved, setIsJustSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [pendingDeleteDayIdx, setPendingDeleteDayIdx] = useState<number | null>(null);
+
+  // Load Saved Plans Modal State
+  const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
+  const [savedPlansList, setSavedPlansList] = useState<SavedPlanSummary[]>([]);
+  const [loadingPlansList, setLoadingPlansList] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -139,18 +162,53 @@ export default function ItinerarySidebar({
 
   const handleDayTabClick = (idx: number) => {
     if (pendingDeleteDayIdx === idx) {
-      // 2nd tap on red tab: execute deletion
       handleRemoveDay(idx);
       return;
     }
 
     if (activeDayIndex === idx && days.length > 1) {
-      // 1st tap on active day tab: turn red for deletion confirmation
       setPendingDeleteDayIdx(idx);
     } else {
-      // Tap on another day: switch active tab & reset pending delete
       setActiveDayIndex(idx);
       setPendingDeleteDayIdx(null);
+    }
+  };
+
+  const handleOpenLoadModal = async () => {
+    setIsLoadModalOpen(true);
+    setLoadingPlansList(true);
+    try {
+      const list = await listSavedPlansFromDB();
+      setSavedPlansList(list);
+    } catch (err) {
+      console.error('Failed to list saved plans:', err);
+    } finally {
+      setLoadingPlansList(false);
+    }
+  };
+
+  const handleSelectSavedPlan = async (selectedId: string) => {
+    setLoadingPlansList(true);
+    try {
+      const plan = await loadPlanFromDB(selectedId);
+      if (plan) {
+        if (onLoadPlan) {
+          onLoadPlan(plan);
+        } else {
+          setPlanTitle(plan.title || '불러온 여행 일정');
+          if (plan.days && plan.days.length > 0) {
+            setDays(plan.days);
+            setActiveDayIndex(0);
+          }
+        }
+        setIsLoadModalOpen(false);
+        setSaveMessage(`'${plan.title}' 일정을 성공적으로 불러왔습니다!`);
+        setTimeout(() => setSaveMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to load selected plan:', err);
+    } finally {
+      setLoadingPlansList(false);
     }
   };
 
@@ -233,7 +291,7 @@ export default function ItinerarySidebar({
   const totalDayDurationSec = routes.reduce((acc, r) => acc + r.durationSeconds, 0);
 
   return (
-    <div className="flex flex-col h-full bg-slate-950/95 backdrop-blur-xl border-r border-slate-800 text-slate-100 p-4 gap-4 overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-950/95 backdrop-blur-xl border-r border-slate-800 text-slate-100 p-4 gap-4 overflow-hidden relative">
       {/* Title & Actions Header */}
       <div className="flex flex-col gap-2 pt-1">
         <div className="flex items-center justify-between gap-2">
@@ -248,6 +306,27 @@ export default function ItinerarySidebar({
           />
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {onNewPlan && (
+              <button
+                type="button"
+                onClick={onNewPlan}
+                className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 transition-all"
+                title="새 일정 만들기"
+              >
+                <FolderPlus className="w-4 h-4 text-emerald-400" />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleOpenLoadModal}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all active:scale-95"
+              title="저장된 일정 불러오기"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-sky-400" />
+              <span className="hidden sm:inline">불러오기</span>
+            </button>
+
             <button
               type="button"
               onClick={handleSaveOnly}
@@ -413,6 +492,73 @@ export default function ItinerarySidebar({
           </DndContext>
         )}
       </div>
+
+      {/* Load Saved Plans Modal */}
+      {isLoadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-md p-5 flex flex-col gap-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-white font-bold text-sm">
+                <FolderOpen className="w-4 h-4 text-sky-400" />
+                <span>저장된 여행 일정 불러오기</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLoadModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 max-h-80 overflow-y-auto custom-scrollbar">
+              {loadingPlansList ? (
+                <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+                  <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
+                  <span>저장된 일정을 조회하는 중입니다...</span>
+                </div>
+              ) : savedPlansList.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
+                  저장된 여행 일정이 없습니다.
+                </div>
+              ) : (
+                savedPlansList.map((planItem) => (
+                  <div
+                    key={planItem.id}
+                    onClick={() => handleSelectSavedPlan(planItem.id)}
+                    className="p-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-xl transition-all flex items-center justify-between gap-3 cursor-pointer group shadow-sm hover:shadow-md"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-xs font-bold text-slate-100 group-hover:text-sky-400 transition-colors truncate">
+                        {planItem.title}
+                      </h4>
+                      <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-emerald-400" />
+                          <span>장소 {planItem.placeCount}개</span>
+                        </span>
+                        {planItem.updatedAt && (
+                          <span className="flex items-center gap-1 text-slate-500">
+                            <Clock className="w-3 h-3" />
+                            <span>{new Date(planItem.updatedAt).toLocaleDateString('ko-KR')}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 bg-sky-600/90 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-all shrink-0 active:scale-95"
+                    >
+                      불러오기
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
