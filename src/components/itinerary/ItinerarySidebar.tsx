@@ -291,10 +291,79 @@ export default function ItinerarySidebar({
   const totalDayDurationSec = routes.reduce((acc, r) => acc + r.durationSeconds, 0);
 
   return (
-    <div className="flex flex-col h-full bg-slate-950/95 backdrop-blur-xl border-r border-slate-800 text-slate-100 p-4 gap-4 overflow-hidden relative">
-      {/* Title & Actions Header */}
-      <div className="flex flex-col gap-2 pt-1">
-        <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-col h-full bg-slate-950/95 backdrop-blur-xl border-r border-slate-800 text-slate-100 p-4 gap-3 overflow-hidden relative">
+      {/* 1. Top Toolbar Action Buttons Row (가장 상단) */}
+      <div className="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-800/80 shrink-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+          {onNewPlan && (
+            <button
+              type="button"
+              onClick={onNewPlan}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all shrink-0 active:scale-95"
+              title="새 일정 만들기"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-emerald-400" />
+              <span>새 일정</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleOpenLoadModal}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all shrink-0 active:scale-95"
+            title="저장된 일정 불러오기"
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-sky-400" />
+            <span>불러오기</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={handleSaveOnly}
+            disabled={isSaving}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition-all shrink-0 active:scale-95"
+            title="일정 저장"
+          >
+            {isJustSaved ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span>저장완료</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-3.5 h-3.5 text-emerald-400" />
+                <span>저장하기</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSharePlan}
+            disabled={isSaving}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shrink-0 active:scale-95"
+            title="공유 링크 생성"
+          >
+            {copiedShareUrl ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-white" />
+                <span>복사완료</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-3.5 h-3.5" />
+                <span>공유하기</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Plan Title & Save Alert Message (그 밑에) */}
+      <div className="flex flex-col gap-1.5 shrink-0">
+        <div className="relative w-full">
           <input
             id={titleInputId}
             name="planTitle"
@@ -302,71 +371,8 @@ export default function ItinerarySidebar({
             value={planTitle}
             onChange={(e) => setPlanTitle(e.target.value)}
             placeholder="여행 제목 (예: 순천 1박2일 힐링 여행)"
-            className="text-base font-extrabold bg-transparent text-white border-b border-transparent hover:border-slate-700 focus:border-emerald-500 focus:outline-none py-1 transition-all flex-1 truncate"
+            className="w-full text-base font-extrabold bg-transparent text-white border-b border-slate-800 hover:border-slate-700 focus:border-emerald-500 focus:outline-none pb-1 transition-all"
           />
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            {onNewPlan && (
-              <button
-                type="button"
-                onClick={onNewPlan}
-                className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 transition-all"
-                title="새 일정 만들기"
-              >
-                <FolderPlus className="w-4 h-4 text-emerald-400" />
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handleOpenLoadModal}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all active:scale-95"
-              title="저장된 일정 불러오기"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-sky-400" />
-              <span className="hidden sm:inline">불러오기</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSaveOnly}
-              disabled={isSaving}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition-all active:scale-95"
-              title="일정 저장"
-            >
-              {isJustSaved ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>저장완료</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>저장하기</span>
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSharePlan}
-              disabled={isSaving}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95"
-              title="공유 링크 생성"
-            >
-              {copiedShareUrl ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-white" />
-                  <span>복사완료</span>
-                </>
-              ) : (
-                <>
-                  <Share2 className="w-3.5 h-3.5" />
-                  <span>공유하기</span>
-                </>
-              )}
-            </button>
-          </div>
         </div>
 
         {saveMessage && (
@@ -378,7 +384,7 @@ export default function ItinerarySidebar({
       </div>
 
       {/* Day Selector Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-800/80 custom-scrollbar">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-800/80 custom-scrollbar shrink-0">
         {days.map((dayItem, idx) => {
           const isPendingDelete = pendingDeleteDayIdx === idx;
           const isActive = activeDayIndex === idx;
