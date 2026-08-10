@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, use } from 'react';
+import React, { useState, useEffect, useMemo, useSyncExternalStore, use } from 'react';
 import Link from 'next/link';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import NaverMap from '@/components/map/NaverMap';
@@ -14,24 +14,22 @@ interface PlanPageProps {
   params: Promise<{ id: string }>;
 }
 
+const emptySubscribe = () => () => {};
+function useIsMounted() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+}
+
 export default function SharedPlanPage({ params }: PlanPageProps) {
   const resolvedParams = use(params);
   const planId = resolvedParams.id;
+  const isMounted = useIsMounted();
 
-  const [userName, setUserName] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('navitrip_user_name')?.trim() || '';
-    }
-    return '';
-  });
-
-  const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return !localStorage.getItem('navitrip_user_name')?.trim();
-    }
-    return false;
-  });
-
+  const [userName, setUserName] = useState<string>('');
+  const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(false);
   const [isChangeNameMode, setIsChangeNameMode] = useState<boolean>(false);
 
   const [loading, setLoading] = useState(true);
@@ -47,6 +45,24 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   ]);
 
   const [fetchedRoutes, setFetchedRoutes] = useState<RouteSegment[]>([]);
+
+  // Check user identification on client mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('navitrip_user_name');
+      if (stored && stored.trim()) {
+        const timer = setTimeout(() => {
+          setUserName(stored.trim());
+        }, 0);
+        return () => clearTimeout(timer);
+      } else {
+        const timer = setTimeout(() => {
+          setIsUserModalOpen(true);
+        }, 0);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, []);
 
   const handleSaveUserName = (name: string) => {
     if (typeof window !== 'undefined') {
@@ -184,7 +200,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     routes,
     planId,
     authorName,
-    userName: userName || '사용자',
+    userName: isMounted && userName ? userName : '사용자',
     onChangeUserName: () => {
       setIsChangeNameMode(true);
       setIsUserModalOpen(true);
@@ -196,13 +212,15 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   return (
     <main className="relative flex w-screen h-screen overflow-hidden bg-slate-950">
       {/* User Name Entry / Change Modal */}
-      <UserNameModal
-        isOpen={isUserModalOpen}
-        currentName={userName}
-        isChangeMode={isChangeNameMode}
-        onSaveUserName={handleSaveUserName}
-        onClose={() => setIsUserModalOpen(false)}
-      />
+      {isMounted && (
+        <UserNameModal
+          isOpen={isUserModalOpen}
+          currentName={userName}
+          isChangeMode={isChangeNameMode}
+          onSaveUserName={handleSaveUserName}
+          onClose={() => setIsUserModalOpen(false)}
+        />
+      )}
 
       {/* Desktop Sidebar Left */}
       <aside className="hidden md:block w-96 lg:w-[420px] h-full shrink-0 z-20 shadow-2xl">
