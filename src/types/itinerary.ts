@@ -39,6 +39,7 @@ export interface DayItinerary {
 export interface PlanData {
   id?: string;
   title: string;
+  authorName?: string;
   days: DayItinerary[];
   createdAt?: string;
   updatedAt?: string;

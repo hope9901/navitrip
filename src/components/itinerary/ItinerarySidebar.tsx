@@ -33,6 +33,8 @@ import {
   Loader2,
   X,
   Clock,
+  User,
+  Edit3,
 } from 'lucide-react';
 import { savePlanToDB, loadPlanFromDB, listSavedPlansFromDB, SavedPlanSummary } from '@/lib/supabase';
 
@@ -46,6 +48,9 @@ interface ItinerarySidebarProps {
   onSelectBlock: (block: ItineraryBlock) => void;
   routes: RouteSegment[];
   planId?: string;
+  authorName?: string;
+  userName?: string;
+  onChangeUserName?: () => void;
   onPlanSaved?: (newId: string) => void;
   onLoadPlan?: (plan: PlanData) => void;
   onNewPlan?: () => void;
@@ -61,6 +66,9 @@ export default function ItinerarySidebar({
   onSelectBlock,
   routes,
   planId,
+  authorName,
+  userName = '사용자',
+  onChangeUserName,
   onPlanSaved,
   onLoadPlan,
   onNewPlan,
@@ -178,7 +186,8 @@ export default function ItinerarySidebar({
     setIsLoadModalOpen(true);
     setLoadingPlansList(true);
     try {
-      const list = await listSavedPlansFromDB();
+      // Filter saved plans strictly by current logged in userName
+      const list = await listSavedPlansFromDB(userName);
       setSavedPlansList(list);
     } catch (err) {
       console.error('Failed to list saved plans:', err);
@@ -215,11 +224,23 @@ export default function ItinerarySidebar({
   const handleSaveOnly = async () => {
     setIsSaving(true);
     try {
+      // If plan belongs to another author, create a new plan under current userName
+      const isOtherAuthor = authorName && authorName !== userName;
+      const targetPlanId = isOtherAuthor ? undefined : planId;
+      const newTitle = isOtherAuthor && !planTitle.includes(userName)
+        ? `${planTitle} (${userName} 편집본)`
+        : (planTitle || '나의 여행 일정');
+
       const planData: PlanData = {
-        id: planId,
-        title: planTitle || '나의 여행 일정',
+        id: targetPlanId,
+        title: newTitle,
+        authorName: userName,
         days,
       };
+
+      if (isOtherAuthor) {
+        setPlanTitle(newTitle);
+      }
 
       const result = await savePlanToDB(planData);
 
@@ -230,8 +251,8 @@ export default function ItinerarySidebar({
       setIsJustSaved(true);
       setSaveMessage(
         result.isLocalFallback
-          ? '로컬 기기에 일정이 안전하게 저장되었습니다.'
-          : 'Supabase 데이터베이스에 일정이 저장되었습니다.'
+          ? `'${userName}' 님의 이름으로 일정이 로컬에 저장되었습니다.`
+          : `'${userName}' 님의 이름으로 일정이 저장되었습니다.`
       );
 
       setTimeout(() => {
@@ -250,11 +271,22 @@ export default function ItinerarySidebar({
   const handleSharePlan = async () => {
     setIsSaving(true);
     try {
+      const isOtherAuthor = authorName && authorName !== userName;
+      const targetPlanId = isOtherAuthor ? undefined : planId;
+      const newTitle = isOtherAuthor && !planTitle.includes(userName)
+        ? `${planTitle} (${userName} 편집본)`
+        : (planTitle || '나의 여행 일정');
+
       const planData: PlanData = {
-        id: planId,
-        title: planTitle || '나의 여행 일정',
+        id: targetPlanId,
+        title: newTitle,
+        authorName: userName,
         days,
       };
+
+      if (isOtherAuthor) {
+        setPlanTitle(newTitle);
+      }
 
       const result = await savePlanToDB(planData);
 
@@ -295,11 +327,27 @@ export default function ItinerarySidebar({
       {/* 1. Top Toolbar Action Buttons Row (가장 상단) */}
       <div className="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-800/80 shrink-0">
         <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+          {/* User Badge */}
+          <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/25 rounded-xl text-emerald-400 font-semibold text-xs shrink-0">
+            <User className="w-3 h-3 shrink-0 text-emerald-400" />
+            <span className="max-w-[70px] truncate">{userName}</span>
+            {onChangeUserName && (
+              <button
+                type="button"
+                onClick={onChangeUserName}
+                className="p-0.5 text-slate-400 hover:text-white transition-colors"
+                title="사용자 이름 변경"
+              >
+                <Edit3 className="w-2.5 h-2.5" />
+              </button>
+            )}
+          </div>
+
           {onNewPlan && (
             <button
               type="button"
               onClick={onNewPlan}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all shrink-0 active:scale-95"
+              className="inline-flex items-center gap-1 px-2 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all shrink-0 active:scale-95"
               title="새 일정 만들기"
             >
               <FolderPlus className="w-3.5 h-3.5 text-emerald-400" />
@@ -310,7 +358,7 @@ export default function ItinerarySidebar({
           <button
             type="button"
             onClick={handleOpenLoadModal}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all shrink-0 active:scale-95"
+            className="inline-flex items-center gap-1 px-2 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all shrink-0 active:scale-95"
             title="저장된 일정 불러오기"
           >
             <FolderOpen className="w-3.5 h-3.5 text-sky-400" />
@@ -318,12 +366,12 @@ export default function ItinerarySidebar({
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             onClick={handleSaveOnly}
             disabled={isSaving}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition-all shrink-0 active:scale-95"
+            className="inline-flex items-center gap-1 px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition-all shrink-0 active:scale-95"
             title="일정 저장"
           >
             {isJustSaved ? (
@@ -334,7 +382,7 @@ export default function ItinerarySidebar({
             ) : (
               <>
                 <Save className="w-3.5 h-3.5 text-emerald-400" />
-                <span>저장하기</span>
+                <span>저장</span>
               </>
             )}
           </button>
@@ -354,7 +402,7 @@ export default function ItinerarySidebar({
             ) : (
               <>
                 <Share2 className="w-3.5 h-3.5" />
-                <span>공유하기</span>
+                <span>공유</span>
               </>
             )}
           </button>
@@ -363,7 +411,7 @@ export default function ItinerarySidebar({
 
       {/* 2. Plan Title & Save Alert Message (그 밑에) */}
       <div className="flex flex-col gap-1.5 shrink-0">
-        <div className="relative w-full">
+        <div className="relative w-full flex items-center justify-between gap-2">
           <input
             id={titleInputId}
             name="planTitle"
@@ -373,6 +421,11 @@ export default function ItinerarySidebar({
             placeholder="여행 제목 (예: 순천 1박2일 힐링 여행)"
             className="w-full text-base font-extrabold bg-transparent text-white border-b border-slate-800 hover:border-slate-700 focus:border-emerald-500 focus:outline-none pb-1 transition-all"
           />
+          {authorName && (
+            <span className="text-[10px] font-medium text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full shrink-0">
+              원작자: {authorName}
+            </span>
+          )}
         </div>
 
         {saveMessage && (
@@ -506,7 +559,7 @@ export default function ItinerarySidebar({
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2 text-white font-bold text-sm">
                 <FolderOpen className="w-4 h-4 text-sky-400" />
-                <span>저장된 여행 일정 불러오기</span>
+                <span>[{userName}] 님의 저장된 여행 일정</span>
               </div>
               <button
                 type="button"
@@ -521,11 +574,11 @@ export default function ItinerarySidebar({
               {loadingPlansList ? (
                 <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
                   <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
-                  <span>저장된 일정을 조회하는 중입니다...</span>
+                  <span>{`'${userName}' 님의 저장된 일정을 조회하는 중입니다...`}</span>
                 </div>
               ) : savedPlansList.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
-                  저장된 여행 일정이 없습니다.
+                  {`'${userName}' 님의 이름으로 저장된 일정이 없습니다.`}
                 </div>
               ) : (
                 savedPlansList.map((planItem) => (

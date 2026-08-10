@@ -5,7 +5,8 @@ import Link from 'next/link';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import NaverMap from '@/components/map/NaverMap';
 import MobileBottomSheet from '@/components/itinerary/MobileBottomSheet';
-import { Place, ItineraryBlock, DayItinerary, RouteSegment } from '@/types/itinerary';
+import UserNameModal from '@/components/common/UserNameModal';
+import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData } from '@/types/itinerary';
 import { loadPlanFromDB } from '@/lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -17,10 +18,27 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   const resolvedParams = use(params);
   const planId = resolvedParams.id;
 
+  const [userName, setUserName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('navitrip_user_name')?.trim() || '';
+    }
+    return '';
+  });
+
+  const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return !localStorage.getItem('navitrip_user_name')?.trim();
+    }
+    return false;
+  });
+
+  const [isChangeNameMode, setIsChangeNameMode] = useState<boolean>(false);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [planTitle, setPlanTitle] = useState('공유받은 여행 일정');
+  const [authorName, setAuthorName] = useState<string | undefined>(undefined);
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
 
@@ -30,6 +48,15 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
 
   const [fetchedRoutes, setFetchedRoutes] = useState<RouteSegment[]>([]);
 
+  const handleSaveUserName = (name: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('navitrip_user_name', name);
+    }
+    setUserName(name);
+    setIsUserModalOpen(false);
+    setIsChangeNameMode(false);
+  };
+
   useEffect(() => {
     async function loadPlan() {
       if (!planId) return;
@@ -38,6 +65,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
         const fetchedPlan = await loadPlanFromDB(planId);
         if (fetchedPlan) {
           setPlanTitle(fetchedPlan.title || '공유받은 여행 일정');
+          setAuthorName(fetchedPlan.authorName || '익명');
           if (fetchedPlan.days && fetchedPlan.days.length > 0) {
             setDays(fetchedPlan.days);
           }
@@ -99,6 +127,26 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     setSelectedPlace(block.place);
   };
 
+  const handleLoadPlan = (plan: PlanData) => {
+    setPlanTitle(plan.title || '불러온 여행 일정');
+    setAuthorName(plan.authorName || '익명');
+    if (plan.days && plan.days.length > 0) {
+      setDays(plan.days);
+      setActiveDayIndex(0);
+    }
+  };
+
+  const handleNewPlan = () => {
+    setPlanTitle('새 여행 일정');
+    setAuthorName(userName);
+    setDays([
+      { day: 1, blocks: [] },
+      { day: 2, blocks: [] },
+    ]);
+    setActiveDayIndex(0);
+    setSelectedPlace(null);
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center w-screen h-screen bg-slate-950 text-white gap-4">
@@ -135,10 +183,27 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     onSelectBlock: handleSelectBlock,
     routes,
     planId,
+    authorName,
+    userName: userName || '사용자',
+    onChangeUserName: () => {
+      setIsChangeNameMode(true);
+      setIsUserModalOpen(true);
+    },
+    onLoadPlan: handleLoadPlan,
+    onNewPlan: handleNewPlan,
   };
 
   return (
     <main className="relative flex w-screen h-screen overflow-hidden bg-slate-950">
+      {/* User Name Entry / Change Modal */}
+      <UserNameModal
+        isOpen={isUserModalOpen}
+        currentName={userName}
+        isChangeMode={isChangeNameMode}
+        onSaveUserName={handleSaveUserName}
+        onClose={() => setIsUserModalOpen(false)}
+      />
+
       {/* Desktop Sidebar Left */}
       <aside className="hidden md:block w-96 lg:w-[420px] h-full shrink-0 z-20 shadow-2xl">
         <ItinerarySidebar {...commonProps} />

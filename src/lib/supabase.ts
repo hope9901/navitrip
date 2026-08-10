@@ -13,6 +13,7 @@ export const supabase = isSupabaseConfigured
 export interface SavedPlanSummary {
   id: string;
   title: string;
+  authorName?: string;
   updatedAt?: string;
   placeCount: number;
 }
@@ -20,9 +21,11 @@ export interface SavedPlanSummary {
 // Helper function to save plan to Supabase or LocalStorage
 export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLocalFallback: boolean }> {
   const planId = plan.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const authorName = plan.authorName || '익명';
   const payload = {
     ...plan,
     id: planId,
+    authorName,
     updatedAt: new Date().toISOString(),
   };
 
@@ -33,6 +36,7 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLoca
         .upsert({
           id: planId,
           title: plan.title,
+          author_name: authorName,
           days: plan.days,
           created_at: plan.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -40,7 +44,25 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLoca
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // If author_name column does not exist in Supabase schema, retry upserting without author_name
+        if (error.code === '42703' || error.message?.includes('author_name')) {
+          const { data: retryData, error: retryErr } = await supabase
+            .from('plans')
+            .upsert({
+              id: planId,
+              title: plan.title,
+              days: plan.days,
+              created_at: plan.createdAt || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+          if (retryErr) throw retryErr;
+          return { id: retryData.id, isLocalFallback: false };
+        }
+        throw error;
+      }
       return { id: data.id, isLocalFallback: false };
     } catch (err) {
       console.warn('Supabase save error, falling back to LocalStorage:', err);
@@ -68,6 +90,7 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
         return {
           id: data.id,
           title: data.title,
+          authorName: data.author_name || '익명',
           days: data.days,
           createdAt: data.created_at,
           updatedAt: data.updated_at,
@@ -93,17 +116,23 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
   return null;
 }
 
-// Helper function to list all saved plans from Supabase and LocalStorage
-export async function listSavedPlansFromDB(): Promise<SavedPlanSummary[]> {
+// Helper function to list saved plans filtered by authorName
+export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<SavedPlanSummary[]> {
   const summaries: SavedPlanSummary[] = [];
 
   if (isSupabaseConfigured && supabase) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('plans')
-        .select('id, title, updated_at, days')
+        .select('id, title, author_name, updated_at, days')
         .order('updated_at', { ascending: false })
-        .limit(30);
+        .limit(50);
+
+      if (targetAuthorName) {
+        query = query.eq('author_name', targetAuthorName);
+      }
+
+      const { data, error } = await query;
 
       if (!error && data) {
         for (const item of data) {
@@ -117,6 +146,7 @@ export async function listSavedPlansFromDB(): Promise<SavedPlanSummary[]> {
           summaries.push({
             id: item.id,
             title: item.title || '제목 없음',
+            authorName: item.author_name || '익명',
             updatedAt: item.updated_at,
             placeCount: count,
           });
@@ -136,6 +166,12 @@ export async function listSavedPlansFromDB(): Promise<SavedPlanSummary[]> {
         if (val) {
           try {
             const parsed = JSON.parse(val);
+
+            // Filter by authorName if specified
+            if (targetAuthorName && parsed.authorName && parsed.authorName !== targetAuthorName) {
+              continue;
+            }
+
             if (!summaries.some((s) => s.id === parsed.id)) {
               let count = 0;
               if (Array.isArray(parsed.days)) {
@@ -147,6 +183,7 @@ export async function listSavedPlansFromDB(): Promise<SavedPlanSummary[]> {
               summaries.push({
                 id: parsed.id,
                 title: parsed.title || '제목 없음',
+                authorName: parsed.authorName || '익명',
                 updatedAt: parsed.updatedAt || parsed.created_at,
                 placeCount: count,
               });
