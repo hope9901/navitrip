@@ -116,9 +116,11 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
   return null;
 }
 
-// Helper function to list saved plans filtered by authorName
+// Helper function to list saved plans filtered by authorName (Support Admin Mode)
 export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<SavedPlanSummary[]> {
   const summaries: SavedPlanSummary[] = [];
+  const normalized = (targetAuthorName || '').trim().toLowerCase();
+  const isAdmin = normalized === 'admin' || targetAuthorName === '어드민';
 
   if (isSupabaseConfigured && supabase) {
     try {
@@ -126,9 +128,10 @@ export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<S
         .from('plans')
         .select('id, title, author_name, updated_at, days')
         .order('updated_at', { ascending: false })
-        .limit(50);
+        .limit(100);
 
-      if (targetAuthorName) {
+      // If NOT admin, filter strictly by author_name
+      if (!isAdmin && targetAuthorName) {
         query = query.eq('author_name', targetAuthorName);
       }
 
@@ -166,9 +169,10 @@ export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<S
         if (val) {
           try {
             const parsed = JSON.parse(val);
+            const itemAuthor = parsed.authorName || '익명';
 
-            // Filter by authorName if specified
-            if (targetAuthorName && parsed.authorName && parsed.authorName !== targetAuthorName) {
+            // If NOT admin, strictly require matching authorName
+            if (!isAdmin && targetAuthorName && itemAuthor !== targetAuthorName) {
               continue;
             }
 
@@ -183,7 +187,7 @@ export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<S
               summaries.push({
                 id: parsed.id,
                 title: parsed.title || '제목 없음',
-                authorName: parsed.authorName || '익명',
+                authorName: itemAuthor,
                 updatedAt: parsed.updatedAt || parsed.created_at,
                 placeCount: count,
               });

@@ -35,6 +35,7 @@ import {
   Clock,
   User,
   Edit3,
+  ShieldCheck,
 } from 'lucide-react';
 import { savePlanToDB, loadPlanFromDB, listSavedPlansFromDB, SavedPlanSummary } from '@/lib/supabase';
 
@@ -86,6 +87,9 @@ export default function ItinerarySidebar({
   const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
   const [savedPlansList, setSavedPlansList] = useState<SavedPlanSummary[]>([]);
   const [loadingPlansList, setLoadingPlansList] = useState(false);
+
+  const normalizedUser = userName.trim().toLowerCase();
+  const isAdmin = normalizedUser === 'admin' || userName.trim() === '어드민';
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -186,7 +190,7 @@ export default function ItinerarySidebar({
     setIsLoadModalOpen(true);
     setLoadingPlansList(true);
     try {
-      // Filter saved plans strictly by current logged in userName
+      // Filter saved plans strictly by current logged in userName (or fetch ALL if Admin)
       const list = await listSavedPlansFromDB(userName);
       setSavedPlansList(list);
     } catch (err) {
@@ -224,8 +228,7 @@ export default function ItinerarySidebar({
   const handleSaveOnly = async () => {
     setIsSaving(true);
     try {
-      // If plan belongs to another author, create a new plan under current userName
-      const isOtherAuthor = authorName && authorName !== userName;
+      const isOtherAuthor = authorName && authorName !== userName && !isAdmin;
       const targetPlanId = isOtherAuthor ? undefined : planId;
       const newTitle = isOtherAuthor && !planTitle.includes(userName)
         ? `${planTitle} (${userName} 편집본)`
@@ -271,7 +274,7 @@ export default function ItinerarySidebar({
   const handleSharePlan = async () => {
     setIsSaving(true);
     try {
-      const isOtherAuthor = authorName && authorName !== userName;
+      const isOtherAuthor = authorName && authorName !== userName && !isAdmin;
       const targetPlanId = isOtherAuthor ? undefined : planId;
       const newTitle = isOtherAuthor && !planTitle.includes(userName)
         ? `${planTitle} (${userName} 편집본)`
@@ -327,10 +330,20 @@ export default function ItinerarySidebar({
       {/* 1. Top Toolbar Action Buttons Row (가장 상단) */}
       <div className="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-800/80 shrink-0">
         <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
-          {/* User Badge */}
-          <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/25 rounded-xl text-emerald-400 font-semibold text-xs shrink-0">
-            <User className="w-3 h-3 shrink-0 text-emerald-400" />
-            <span className="max-w-[70px] truncate">{userName}</span>
+          {/* User Badge (with Admin mode support) */}
+          <div
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl font-semibold text-xs shrink-0 ${
+              isAdmin
+                ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-md'
+                : 'bg-emerald-500/10 border border-emerald-500/25 text-emerald-400'
+            }`}
+          >
+            {isAdmin ? (
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            ) : (
+              <User className="w-3 h-3 shrink-0 text-emerald-400" />
+            )}
+            <span className="max-w-[80px] truncate">{isAdmin ? '👑 ADMIN' : userName}</span>
             {onChangeUserName && (
               <button
                 type="button"
@@ -423,7 +436,7 @@ export default function ItinerarySidebar({
           />
           {authorName && (
             <span className="text-[10px] font-medium text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full shrink-0">
-              원작자: {authorName}
+              작성자: {authorName}
             </span>
           )}
         </div>
@@ -559,7 +572,9 @@ export default function ItinerarySidebar({
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2 text-white font-bold text-sm">
                 <FolderOpen className="w-4 h-4 text-sky-400" />
-                <span>[{userName}] 님의 저장된 여행 일정</span>
+                <span>
+                  {isAdmin ? '👑 [어드민 관리] 저장된 전체 여행 일정' : `[${userName}] 님의 저장된 여행 일정`}
+                </span>
               </div>
               <button
                 type="button"
@@ -574,11 +589,11 @@ export default function ItinerarySidebar({
               {loadingPlansList ? (
                 <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
                   <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
-                  <span>{`'${userName}' 님의 저장된 일정을 조회하는 중입니다...`}</span>
+                  <span>{isAdmin ? '전체 저장 일정을 조회하는 중입니다...' : `'${userName}' 님의 저장된 일정을 조회하는 중입니다...`}</span>
                 </div>
               ) : savedPlansList.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
-                  {`'${userName}' 님의 이름으로 저장된 일정이 없습니다.`}
+                  {isAdmin ? '저장된 일정이 없습니다.' : `'${userName}' 님의 이름으로 저장된 일정이 없습니다.`}
                 </div>
               ) : (
                 savedPlansList.map((planItem) => (
@@ -588,9 +603,16 @@ export default function ItinerarySidebar({
                     className="p-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-xl transition-all flex items-center justify-between gap-3 cursor-pointer group shadow-sm hover:shadow-md"
                   >
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-xs font-bold text-slate-100 group-hover:text-sky-400 transition-colors truncate">
-                        {planItem.title}
-                      </h4>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="text-xs font-bold text-slate-100 group-hover:text-sky-400 transition-colors truncate">
+                          {planItem.title}
+                        </h4>
+                        {isAdmin && planItem.authorName && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            작성자: {planItem.authorName}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
                         <span className="flex items-center gap-1">
                           <MapPin className="w-3 h-3 text-emerald-400" />
