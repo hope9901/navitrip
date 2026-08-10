@@ -9,21 +9,6 @@ interface PlaceSearchCardProps {
   onSelectPlace?: (place: Place) => void;
 }
 
-function getErrorMessageFromServiceCode(code?: string): string {
-  switch (code) {
-    case 'NOT_CONFIGURED':
-      return '네이버 API 키가 설정되지 않았습니다.';
-    case 'AUTH_FAILED':
-      return '네이버 API 인증에 실패했습니다. Client ID와 Secret을 확인해 주세요.';
-    case 'FORBIDDEN':
-      return '해당 네이버 API 서비스가 활성화되어 있는지 확인해 주세요.';
-    case 'RATE_LIMITED':
-      return '네이버 API 호출 한도를 초과했습니다.';
-    default:
-      return '검색 결과를 불러오지 못했습니다.';
-  }
-}
-
 export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSearchCardProps) {
   const searchInputId = useId();
   const [query, setQuery] = useState('');
@@ -54,12 +39,18 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
           const localCode = data.services.localSearch?.code;
           const geocodeCode = data.services.geocoding?.code;
 
-          if (localCode === 'NOT_CONFIGURED') {
-            msg = '네이버 장소 검색 API 키가 설정되지 않았습니다.';
+          if (localCode === 'AUTH_FAILED' && geocodeCode === 'AUTH_FAILED') {
+            msg = '장소 검색 키와 Naver Cloud Maps 키 인증에 모두 실패했습니다.';
+          } else if (localCode === 'AUTH_FAILED') {
+            msg = '네이버 장소 검색 API 인증에 실패했습니다. NAVER API Hub 지역 검색 키를 확인해 주세요.';
+          } else if (geocodeCode === 'AUTH_FAILED') {
+            msg = '네이버 주소 검색 API 인증에 실패했습니다. Naver Cloud Maps 키를 확인해 주세요.';
+          } else if (localCode === 'NOT_CONFIGURED' && geocodeCode === 'NOT_CONFIGURED') {
+            msg = '네이버 API 키가 설정되지 않았습니다.';
+          } else if (localCode === 'NOT_CONFIGURED') {
+            msg = '네이버 장소 검색 API 키가 설정되지 않았습니다. NAVER API Hub 지역 검색 키를 확인해 주세요.';
           } else if (geocodeCode === 'NOT_CONFIGURED') {
-            msg = '네이버 주소 검색 API 키가 설정되지 않았습니다.';
-          } else if (localCode === 'AUTH_FAILED' || geocodeCode === 'AUTH_FAILED') {
-            msg = '네이버 API 인증에 실패했습니다. Client ID와 Secret을 확인해 주세요.';
+            msg = '네이버 주소 검색 API 키가 설정되지 않았습니다. Naver Cloud Maps 키를 확인해 주세요.';
           } else if (localCode === 'FORBIDDEN' || geocodeCode === 'FORBIDDEN') {
             msg = '해당 네이버 API 서비스가 활성화되어 있는지 확인해 주세요.';
           } else if (localCode === 'RATE_LIMITED' || geocodeCode === 'RATE_LIMITED') {
@@ -73,10 +64,16 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
       }
 
       if (data.warnings && Array.isArray(data.warnings) && data.warnings.length > 0) {
-        const firstWarn = data.warnings[0];
-        setWarningMsg(
-          `${firstWarn.service === 'localSearch' ? '장소' : '주소'} 검색: ${getErrorMessageFromServiceCode(firstWarn.code)}`
-        );
+        const localWarn = data.warnings.find((w: { service: string }) => w.service === 'localSearch');
+        const geocodeWarn = data.warnings.find((w: { service: string }) => w.service === 'geocoding');
+
+        if (localWarn && localWarn.code === 'AUTH_FAILED') {
+          setWarningMsg('장소 검색: NAVER API Hub 지역 검색 키 인증에 실패했습니다.');
+        } else if (geocodeWarn && geocodeWarn.code === 'AUTH_FAILED') {
+          setWarningMsg('주소 검색: Naver Cloud Maps 키 인증에 실패했습니다.');
+        } else {
+          setWarningMsg('일부 검색 API 서비스 연동에 경고가 발생했습니다.');
+        }
       }
 
       if (data.items && Array.isArray(data.items)) {
