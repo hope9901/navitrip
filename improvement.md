@@ -57,3 +57,16 @@
 - **Local Search**: `https://naverapihub.apigw.ntruss.com/search/v1/local` 적용 및 `parseLocalCoordinate` 호환 파싱 함수 적용 (HTTP 200 OK 달성).
 - **Geocoding**: `https://maps.apigw.ntruss.com/map-geocode/v2/geocode` 적용 (HTTP 200 OK 달성).
 - **Directions**: `https://maps.apigw.ntruss.com/map-direction/v1/driving` 적용.
+
+---
+
+## 이슈 14: 모바일 브라우저 너비 축소 시 장소 제거 X 버튼 중복 노출 및 겹침 문제
+
+### 1. 문제점
+- 브라우저 너비를 모바일 스크린 크기로 축소하고 장소 카드에 마우스를 얹으면(hover), X 삭제 버튼이 2개 중복되어 시각적으로 지저분하게 보이는 현상 발생.
+
+### 2. 원인 분석
+- `SortableBlockItem.tsx` 내부에서 데스크톱 hover 전용 ✕ 버튼(절대 좌표 `absolute top-2 right-2`)과 모바일 항시 노출 전용 ✕ 버튼(`md:hidden`)이 2개 별도로 정의되어 있어, 반응형 분기점 및 hover 상태가 겹칠 때 두 버튼이 동시에 화면에 나타남.
+
+### 3. 해결 대책
+- 두 개의 중복 ✕ 버튼을 단일 반응형 버튼(`opacity-80 md:opacity-0 group-hover/card:opacity-100`)으로 통합하여 모든 화면 크기(데스크톱 hover, 모바일 터치)에서 깔끔하게 단 1개의 ✕ 삭제 버튼만 노출되도록 개선.
