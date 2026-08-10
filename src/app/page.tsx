@@ -1,13 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Header from '@/components/common/Header';
 import NaverMap from '@/components/map/NaverMap';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import MobileBottomSheet from '@/components/itinerary/MobileBottomSheet';
 import { DayItinerary, ItineraryBlock, Place, RouteSegment } from '@/types/itinerary';
 
-// Initial sample itinerary data for immediate wow factor!
 const INITIAL_DAYS: DayItinerary[] = [
   {
     day: 1,
@@ -86,10 +85,13 @@ export default function PlannerPage({ params }: { params?: { id?: string } }) {
   const [routes, setRoutes] = useState<RouteSegment[]>([]);
 
   const activeDay = days[activeDayIndex] || { day: 1, blocks: [] };
-  const currentBlocks = activeDay.blocks || [];
 
-  // Calculate routes for current active day to display on Naver Map
-  React.useEffect(() => {
+  const currentBlocks = useMemo(
+    () => activeDay.blocks || [],
+    [activeDay.blocks]
+  );
+
+  useEffect(() => {
     let isCancelled = false;
 
     async function updateRoutes() {
@@ -156,23 +158,20 @@ export default function PlannerPage({ params }: { params?: { id?: string } }) {
     activeDayIndex,
     setActiveDayIndex,
     onSelectBlock: handleSelectBlock,
+    routes,
     planId,
     onPlanSaved: (newId: string) => setPlanId(newId),
   };
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950">
-      {/* Navigation Header */}
       <Header />
 
-      {/* Main Container */}
       <div className="relative flex flex-1 w-full h-[calc(100vh-3.5rem)] overflow-hidden">
-        {/* Desktop Split View - Left Sidebar */}
         <div className="hidden md:block w-[400px] lg:w-[440px] h-full z-10 shrink-0">
           <ItinerarySidebar {...commonProps} />
         </div>
 
-        {/* Naver Map View */}
         <div className="flex-1 h-full w-full relative">
           <NaverMap
             blocks={currentBlocks}
@@ -182,7 +181,6 @@ export default function PlannerPage({ params }: { params?: { id?: string } }) {
           />
         </div>
 
-        {/* Mobile View - Bottom Sheet */}
         <MobileBottomSheet {...commonProps} />
       </div>
     </div>

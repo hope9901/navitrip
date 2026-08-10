@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -30,12 +30,10 @@ interface ItinerarySidebarProps {
   activeDayIndex: number;
   setActiveDayIndex: (idx: number) => void;
   onSelectBlock: (block: ItineraryBlock) => void;
+  routes: RouteSegment[];
   planId?: string;
   onPlanSaved?: (newId: string) => void;
 }
-
-// Global In-Memory Cache to prevent duplicate API calls for the same route segment
-const routeSegmentCache = new Map<string, RouteSegment>();
 
 export default function ItinerarySidebar({
   planTitle,
@@ -45,21 +43,13 @@ export default function ItinerarySidebar({
   activeDayIndex,
   setActiveDayIndex,
   onSelectBlock,
+  routes,
   planId,
   onPlanSaved,
 }: ItinerarySidebarProps) {
-  const [routes, setRoutes] = useState<RouteSegment[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [copiedShareUrl, setCopiedShareUrl] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [isMounted, setIsMounted] = useState(false);
-
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Prevent SSR Hydration Mismatch for @dnd-kit IDs
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -73,7 +63,6 @@ export default function ItinerarySidebar({
   const currentDay = days[activeDayIndex] || { day: 1, blocks: [] };
   const blocks = currentDay.blocks || [];
 
-  // Add Place to current day
   const handleAddPlace = (place: Place) => {
     const newBlock: ItineraryBlock = {
       id: `block_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -94,7 +83,6 @@ export default function ItinerarySidebar({
     });
   };
 
-  // Remove block by ID
   const handleRemoveBlock = (blockId: string) => {
     setDays((prevDays) => {
       const newDays = [...prevDays];
@@ -106,7 +94,6 @@ export default function ItinerarySidebar({
     });
   };
 
-  // Drag End handler
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -125,7 +112,6 @@ export default function ItinerarySidebar({
     });
   };
 
-  // Add Day Tab
   const handleAddDay = () => {
     setDays((prev) => [
       ...prev,
@@ -134,7 +120,6 @@ export default function ItinerarySidebar({
     setActiveDayIndex(days.length);
   };
 
-  // Remove Day Tab
   const handleRemoveDay = (dayIdx: number) => {
     if (days.length <= 1) return;
     setDays((prev) => prev.filter((_, idx) => idx !== dayIdx));
@@ -143,85 +128,6 @@ export default function ItinerarySidebar({
     }
   };
 
-  // OPTIMIZED Route Fetching with Debouncing (400ms) & In-Memory Cache
-  useEffect(() => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-
-    if (blocks.length < 2) {
-      setRoutes([]);
-      return;
-    }
-
-    debounceTimerRef.current = setTimeout(async () => {
-      const results: RouteSegment[] = [];
-
-      for (let i = 0; i < blocks.length - 1; i++) {
-        const from = blocks[i];
-        const to = blocks[i + 1];
-
-        // Cache Key based on coordinates
-        const cacheKey = `${from.place.lat.toFixed(5)},${from.place.lng.toFixed(5)}->${to.place.lat.toFixed(5)},${to.place.lng.toFixed(5)}`;
-
-        if (routeSegmentCache.has(cacheKey)) {
-          const cached = routeSegmentCache.get(cacheKey)!;
-          results.push({
-            ...cached,
-            fromBlockId: from.id,
-            toBlockId: to.id,
-          });
-          continue;
-        }
-
-        try {
-          const res = await fetch('/api/directions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              start: { lat: from.place.lat, lng: from.place.lng },
-              goal: { lat: to.place.lat, lng: to.place.lng },
-            }),
-          });
-          const data = await res.json();
-
-          const segment: RouteSegment = {
-            fromBlockId: from.id,
-            toBlockId: to.id,
-            distanceMeter: data.distanceMeter || 0,
-            durationSeconds: data.durationSeconds || 0,
-            formattedDistance: data.formattedDistance || '0km',
-            formattedDuration: data.formattedDuration || '0분',
-            path: data.path || [],
-          };
-
-          routeSegmentCache.set(cacheKey, segment);
-          results.push(segment);
-        } catch (err) {
-          console.error('Route fetch error:', err);
-          results.push({
-            fromBlockId: from.id,
-            toBlockId: to.id,
-            distanceMeter: 0,
-            durationSeconds: 0,
-            formattedDistance: '0km',
-            formattedDuration: '0분',
-            path: [],
-          });
-        }
-      }
-
-      setRoutes(results);
-    }, 400);
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, [blocks]);
-
-  // Save & Share Plan
   const handleSharePlan = async () => {
     setIsSaving(true);
     try {
@@ -232,8 +138,15 @@ export default function ItinerarySidebar({
       };
 
       const result = await savePlanToDB(planData);
-      const shareUrl = `${window.location.origin}/plan/${result.id}`;
 
+      if (result.isLocalFallback) {
+        setSaveMessage(
+          'Supabase에 저장되지 않아 다른 기기와 공유할 수 없습니다. 로컬에만 저장했습니다.'
+        );
+        return;
+      }
+
+      const shareUrl = `${window.location.origin}/plan/${result.id}`;
       await navigator.clipboard.writeText(shareUrl);
       setCopiedShareUrl(true);
       setSaveMessage('공유 링크가 클립보드에 복사되었습니다!');
@@ -246,8 +159,9 @@ export default function ItinerarySidebar({
         setCopiedShareUrl(false);
         setSaveMessage(null);
       }, 3000);
-    } catch (err) {
-      console.error('Failed to save plan:', err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
+      console.error('Failed to save plan:', msg);
       setSaveMessage('저장 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
@@ -271,6 +185,7 @@ export default function ItinerarySidebar({
           />
 
           <button
+            type="button"
             onClick={handleSharePlan}
             disabled={isSaving}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 shrink-0"
@@ -302,6 +217,7 @@ export default function ItinerarySidebar({
         {days.map((dayItem, idx) => (
           <div key={idx} className="relative group shrink-0">
             <button
+              type="button"
               onClick={() => setActiveDayIndex(idx)}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 activeDayIndex === idx
@@ -314,6 +230,7 @@ export default function ItinerarySidebar({
             </button>
             {days.length > 1 && (
               <button
+                type="button"
                 onClick={() => handleRemoveDay(idx)}
                 className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-slate-800 hover:bg-rose-500 text-slate-400 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-[10px]"
                 title="일차 삭제"
@@ -325,6 +242,7 @@ export default function ItinerarySidebar({
         ))}
 
         <button
+          type="button"
           onClick={handleAddDay}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-900/60 hover:bg-slate-800 text-emerald-400 border border-dashed border-emerald-500/40 transition-all shrink-0"
         >
@@ -367,7 +285,7 @@ export default function ItinerarySidebar({
             <p className="text-xs font-medium">아직 등록된 장소가 없습니다.</p>
             <p className="text-[11px] text-slate-600">위 검색창에서 가고 싶은 곳을 검색한 후 [매핑하기] 버튼을 눌러보세요.</p>
           </div>
-        ) : isMounted ? (
+        ) : (
           <DndContext id="itinerary-dnd-context" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
               <div className="flex flex-col gap-1">
@@ -384,19 +302,6 @@ export default function ItinerarySidebar({
               </div>
             </SortableContext>
           </DndContext>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {blocks.map((block, idx) => (
-              <SortableBlockItem
-                key={block.id}
-                block={block}
-                index={idx}
-                routeToNext={routes[idx]}
-                onRemove={handleRemoveBlock}
-                onSelect={onSelectBlock}
-              />
-            ))}
-          </div>
         )}
       </div>
     </div>

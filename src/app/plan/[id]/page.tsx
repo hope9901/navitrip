@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Header from '@/components/common/Header';
 import NaverMap from '@/components/map/NaverMap';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import MobileBottomSheet from '@/components/itinerary/MobileBottomSheet';
-import { DayItinerary, ItineraryBlock, Place, RouteSegment, PlanData } from '@/types/itinerary';
+import { DayItinerary, ItineraryBlock, Place, RouteSegment } from '@/types/itinerary';
 import { loadPlanFromDB } from '@/lib/supabase';
-import { Loader2, Share2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function SharedPlanPage() {
   const params = useParams();
@@ -22,7 +22,6 @@ export default function SharedPlanPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Load plan from Supabase / LocalStorage
   useEffect(() => {
     if (!planId) return;
 
@@ -37,8 +36,9 @@ export default function SharedPlanPage() {
           setErrorMsg('해당 일정을 찾을 수 없거나 삭제되었습니다.');
           setDays([{ day: 1, blocks: [] }]);
         }
-      } catch (err) {
-        console.error('Failed to load plan:', err);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : '일정을 불러오는 중 오류가 발생했습니다.';
+        console.error('Failed to load plan:', msg);
         setErrorMsg('일정을 불러오는 중 오류가 발생했습니다.');
       } finally {
         setLoading(false);
@@ -49,9 +49,12 @@ export default function SharedPlanPage() {
   }, [planId]);
 
   const activeDay = days[activeDayIndex] || { day: 1, blocks: [] };
-  const currentBlocks = activeDay.blocks || [];
 
-  // Route updates
+  const currentBlocks = useMemo(
+    () => activeDay.blocks || [],
+    [activeDay.blocks]
+  );
+
   useEffect(() => {
     let isCancelled = false;
 
@@ -119,6 +122,7 @@ export default function SharedPlanPage() {
     activeDayIndex,
     setActiveDayIndex,
     onSelectBlock: handleSelectBlock,
+    routes,
     planId,
   };
 
@@ -143,12 +147,10 @@ export default function SharedPlanPage() {
       )}
 
       <div className="relative flex flex-1 w-full h-[calc(100vh-3.5rem)] overflow-hidden">
-        {/* Desktop Split View */}
         <div className="hidden md:block w-[400px] lg:w-[440px] h-full z-10 shrink-0">
           <ItinerarySidebar {...commonProps} />
         </div>
 
-        {/* Map View */}
         <div className="flex-1 h-full w-full relative">
           <NaverMap
             blocks={currentBlocks}
@@ -158,7 +160,6 @@ export default function SharedPlanPage() {
           />
         </div>
 
-        {/* Mobile View */}
         <MobileBottomSheet {...commonProps} />
       </div>
     </div>

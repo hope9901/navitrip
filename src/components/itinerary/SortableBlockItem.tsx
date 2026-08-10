@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ItineraryBlock, RouteSegment } from '@/types/itinerary';
@@ -21,12 +21,6 @@ export default function SortableBlockItem({
   onRemove,
   onSelect,
 }: SortableBlockItemProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   const {
     attributes,
     listeners,
@@ -43,8 +37,6 @@ export default function SortableBlockItem({
     zIndex: isDragging ? 50 : 1,
   };
 
-  const dragProps = mounted ? { ...attributes, ...listeners } : {};
-
   return (
     <div ref={setNodeRef} style={style} className="relative flex flex-col w-full group">
       {/* Block Card */}
@@ -54,7 +46,8 @@ export default function SortableBlockItem({
       >
         {/* Drag Handle */}
         <button
-          {...dragProps}
+          {...attributes}
+          {...listeners}
           type="button"
           aria-label="순서 변경 드래그"
           className="p-1 text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0"

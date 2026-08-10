@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Haversine formula distance calculation helper (in meters)
 function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371e3; // metres
+  const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -16,7 +15,6 @@ function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lo
   return Math.round(R * c);
 }
 
-// Fallback estimation (driving ~35km/h in city + traffic factor)
 function estimateDrivingTimeSeconds(distanceMeter: number): number {
   const averageSpeedKmH = 35;
   const hours = (distanceMeter / 1000) / averageSpeedKmH;
@@ -37,10 +35,21 @@ function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)}km`;
 }
 
+interface Point {
+  lat: number;
+  lng: number;
+}
+
+interface DirectionsRequestBody {
+  start?: Point;
+  goal?: Point;
+  waypoints?: Point[];
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { start, goal, waypoints } = body; // start: { lat, lng }, goal: { lat, lng }
+    const body: DirectionsRequestBody = await request.json();
+    const { start, goal, waypoints } = body;
 
     if (!start || !goal) {
       return NextResponse.json({ error: 'Start and goal coordinates required' }, { status: 400 });
@@ -49,7 +58,6 @@ export async function POST(request: NextRequest) {
     const ncpKeyId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || process.env.NAVER_CLIENT_ID;
     const ncpKeySecret = process.env.NAVER_CLIENT_SECRET;
 
-    // Check if NCP API credentials available
     if (!ncpKeyId || !ncpKeySecret) {
       const dist = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
       const durationSec = estimateDrivingTimeSeconds(dist);
@@ -68,11 +76,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Call Naver Directions 5 API with correct option=trafast (실시간 빠른길)
     let url = `https://naveropenapi.apigw.ntruss.com/map-direction/v5/finddriving?start=${start.lng},${start.lat}&goal=${goal.lng},${goal.lat}&option=trafast`;
 
     if (waypoints && Array.isArray(waypoints) && waypoints.length > 0) {
-      const wpStr = waypoints.map((wp: { lat: number; lng: number }) => `${wp.lng},${wp.lat}`).join('|');
+      const wpStr = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join('|');
       url += `&waypoints=${wpStr}`;
     }
 
@@ -108,7 +115,7 @@ export async function POST(request: NextRequest) {
     if (route) {
       const summary = route.summary;
       const path: Array<[number, number]> = (route.path || []).map(([lng, lat]: [number, number]) => [lat, lng]);
-      const durationSec = Math.round((summary.duration || 0) / 1000); // ms to sec
+      const durationSec = Math.round((summary.duration || 0) / 1000);
 
       return NextResponse.json({
         distanceMeter: summary.distance,
@@ -120,7 +127,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Fallback if route summary not found
     const dist = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
     const durationSec = estimateDrivingTimeSeconds(dist);
     return NextResponse.json({
@@ -134,8 +140,9 @@ export async function POST(request: NextRequest) {
       ],
       isFallback: true,
     });
-  } catch (error: any) {
-    console.error('Directions API error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    console.error('Directions API error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

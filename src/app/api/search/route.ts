@@ -1,5 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+interface NaverLocalSearchItem {
+  title: string;
+  category?: string;
+  address: string;
+  roadAddress?: string;
+  link?: string;
+  telephone?: string;
+  mapx: string;
+  mapy: string;
+}
+
+interface NaverLocalSearchResponse {
+  items?: NaverLocalSearchItem[];
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('query');
@@ -12,7 +27,6 @@ export async function GET(request: NextRequest) {
   const clientSecret = process.env.NAVER_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    // Return mock results if API keys are not set, so user can immediately test UI!
     return NextResponse.json({
       items: [
         {
@@ -71,28 +85,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Naver Search API failed', details: errText }, { status: res.status });
     }
 
-    const data = await res.json();
-    const items = (data.items || []).map((item: any, idx: number) => {
-      // Clean HTML tags from Naver Search API response (<b>, </b>)
+    const data: NaverLocalSearchResponse = await res.json();
+    const items = (data.items || []).map((item, idx) => {
       const cleanTitle = item.title.replace(/<[^>]*>?/gm, '');
-      
-      // Coordinate calculation
-      // mapx/mapy in Naver search local API are WGS84 * 10,000,000 (or KATECH in some legacy endpoints)
+
       let lng = parseFloat(item.mapx) / 10000000;
       let lat = parseFloat(item.mapy) / 10000000;
 
-      // Fallback range check for Korea coordinates (Lat ~33..39, Lng ~124..132)
       if (lat < 30 || lat > 45 || lng < 120 || lng > 135) {
         lng = parseFloat(item.mapx) / 1000000;
         lat = parseFloat(item.mapy) / 1000000;
       }
       if (lat < 30 || lat > 45 || lng < 120 || lng > 135) {
-        // Fallback default Seoul coordinate if coordinates invalid
         lat = 37.5665;
         lng = 126.9780;
       }
 
-      // External link for Naver Search / Place review
       const naverSearchLink = item.link || `https://search.naver.com/search.naver?query=${encodeURIComponent(cleanTitle + ' ' + (item.roadAddress || item.address))}`;
 
       return {
@@ -111,8 +119,9 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({ items, isMock: false });
-  } catch (error: any) {
-    console.error('Search Route Error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    console.error('Search Route Error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

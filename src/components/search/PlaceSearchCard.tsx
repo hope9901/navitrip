@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Place } from '@/types/itinerary';
-import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, Tag } from 'lucide-react';
+import { Search, MapPin, ExternalLink, Plus, Loader2, Phone } from 'lucide-react';
 
 interface PlaceSearchCardProps {
   onAddPlace: (place: Place) => void;
@@ -114,7 +114,6 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
 
                   {/* Actions Bar */}
                   <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-700/50 mt-1">
-                    {/* Naver Detail & Review Link */}
                     {place.link ? (
                       <a
                         href={place.link}
@@ -129,8 +128,8 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
                       <span className="text-[10px] text-slate-500">네이버 검색 연동</span>
                     )}
 
-                    {/* Mapping / Add to Itinerary Button */}
                     <button
+                      type="button"
                       onClick={() => handleAdd(place)}
                       className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
                         isAdded

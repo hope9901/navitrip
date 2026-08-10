@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Place, ItineraryBlock, RouteSegment } from '@/types/itinerary';
-import { MapPin, Navigation, Info, AlertTriangle } from 'lucide-react';
+import { Navigation, AlertTriangle } from 'lucide-react';
 
 interface NaverMapProps {
   blocks: ItineraryBlock[];
@@ -10,12 +10,6 @@ interface NaverMapProps {
   selectedPlace?: Place | null;
   clientId?: string;
   onMarkerClick?: (block: ItineraryBlock) => void;
-}
-
-declare global {
-  interface Window {
-    naver: any;
-  }
 }
 
 export default function NaverMap({
@@ -26,15 +20,15 @@ export default function NaverMap({
   onMarkerClick,
 }: NaverMapProps) {
   const mapElement = useRef<HTMLDivElement>(null);
-  const mapInstance = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const polylinesRef = useRef<any[]>([]);
-  const infoWindowRef = useRef<any>(null);
+  const mapInstance = useRef<naver.maps.Map | null>(null);
+  const markersRef = useRef<naver.maps.Marker[]>([]);
+  const polylinesRef = useRef<naver.maps.Polyline[]>([]);
+  const infoWindowRef = useRef<naver.maps.InfoWindow | null>(null);
 
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
 
-  // Load Naver Map Script dynamically
+  // Load Naver Map Script dynamically with ncpKeyId
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -43,9 +37,9 @@ export default function NaverMap({
       return;
     }
 
-    const ncpClientId = clientId || process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || '';
+    const ncpKeyId = clientId || process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || '';
 
-    if (!ncpClientId || ncpClientId.includes('your_')) {
+    if (!ncpKeyId || ncpKeyId.includes('your_')) {
       setMapError('네이버 Client ID가 .env.local에 설정되지 않았습니다.');
       return;
     }
@@ -57,7 +51,7 @@ export default function NaverMap({
       script = document.createElement('script');
       script.id = scriptId;
       script.type = 'text/javascript';
-      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${ncpClientId}`;
+      script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${ncpKeyId}`;
       script.async = true;
       document.head.appendChild(script);
     }
@@ -80,25 +74,26 @@ export default function NaverMap({
     if (!isScriptLoaded || !mapElement.current || mapInstance.current) return;
 
     try {
-      const defaultCenter = new window.naver.maps.LatLng(37.5665, 126.9780); // Seoul default
-      const mapOptions = {
+      const defaultCenter = new naver.maps.LatLng(37.5665, 126.9780);
+      const mapOptions: naver.maps.MapOptions = {
         center: defaultCenter,
         zoom: 12,
         minZoom: 6,
         maxZoom: 19,
         zoomControl: true,
         zoomControlOptions: {
-          position: window.naver.maps.Position.TOP_RIGHT,
+          position: naver.maps.Position.TOP_RIGHT,
         },
       };
 
-      mapInstance.current = new window.naver.maps.Map(mapElement.current, mapOptions);
-      infoWindowRef.current = new window.naver.maps.InfoWindow({
+      mapInstance.current = new naver.maps.Map(mapElement.current, mapOptions);
+      infoWindowRef.current = new naver.maps.InfoWindow({
+        content: '',
         borderWidth: 0,
         backgroundColor: 'transparent',
         disableAnchor: false,
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to initialize Naver Map:', e);
       setMapError('네이버 지도 인증 실패 (NCP 콘솔의 Web 서비스 URL 설정을 확인해 주세요)');
     }
@@ -106,10 +101,9 @@ export default function NaverMap({
 
   // Update Markers & Paths when blocks or routes change
   useEffect(() => {
-    if (!mapInstance.current || !window.naver || !window.naver.maps) return;
+    if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
 
     try {
-      // Clear existing markers & polylines
       markersRef.current.forEach((m) => m.setMap(null));
       markersRef.current = [];
 
@@ -118,11 +112,17 @@ export default function NaverMap({
 
       if (blocks.length === 0) return;
 
-      const bounds = new window.naver.maps.LatLngBounds();
+      const firstPosition = new naver.maps.LatLng(
+        blocks[0].place.lat,
+        blocks[0].place.lng
+      );
+      const bounds = new naver.maps.LatLngBounds(
+        firstPosition,
+        firstPosition
+      );
 
-      // Create markers for each block
       blocks.forEach((block, idx) => {
-        const position = new window.naver.maps.LatLng(block.place.lat, block.place.lng);
+        const position = new naver.maps.LatLng(block.place.lat, block.place.lng);
         bounds.extend(position);
 
         const markerContent = `
@@ -145,17 +145,17 @@ export default function NaverMap({
           </div>
         `;
 
-        const marker = new window.naver.maps.Marker({
+        const marker = new naver.maps.Marker({
           position,
-          map: mapInstance.current,
+          map: mapInstance.current!,
           title: block.place.title,
           icon: {
             content: markerContent,
-            anchor: new window.naver.maps.Point(17, 17),
+            anchor: new naver.maps.Point(17, 17),
           },
         });
 
-        window.naver.maps.Event.addListener(marker, 'click', () => {
+        naver.maps.Event.addListener(marker, 'click', () => {
           if (onMarkerClick) onMarkerClick(block);
 
           const infoContent = `
@@ -197,19 +197,20 @@ export default function NaverMap({
             </div>
           `;
 
-          infoWindowRef.current.setContent(infoContent);
-          infoWindowRef.current.open(mapInstance.current, marker);
+          if (infoWindowRef.current) {
+            infoWindowRef.current.setContent(infoContent);
+            infoWindowRef.current.open(mapInstance.current!, marker);
+          }
         });
 
         markersRef.current.push(marker);
       });
 
-      // Draw Polylines for routes
       routes.forEach((route) => {
         if (route.path && route.path.length > 0) {
-          const linePath = route.path.map(([lat, lng]) => new window.naver.maps.LatLng(lat, lng));
-          const polyline = new window.naver.maps.Polyline({
-            map: mapInstance.current,
+          const linePath = route.path.map(([lat, lng]) => new naver.maps.LatLng(lat, lng));
+          const polyline = new naver.maps.Polyline({
+            map: mapInstance.current!,
             path: linePath,
             strokeColor: '#10b981',
             strokeWeight: 5,
@@ -220,7 +221,6 @@ export default function NaverMap({
         }
       });
 
-      // Fit map bounds to encompass all markers
       if (blocks.length > 0) {
         mapInstance.current.fitBounds(bounds, {
           top: 60,
@@ -229,29 +229,27 @@ export default function NaverMap({
           left: 60,
         });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error rendering markers or routes:', e);
     }
   }, [blocks, routes, onMarkerClick]);
 
   // Center map when selectedPlace changes
   useEffect(() => {
-    if (!mapInstance.current || !selectedPlace || !window.naver) return;
+    if (!mapInstance.current || !selectedPlace || typeof naver === 'undefined') return;
     try {
-      const targetPos = new window.naver.maps.LatLng(selectedPlace.lat, selectedPlace.lng);
-      mapInstance.current.panTo(targetPos);
-      mapInstance.current.setZoom(15);
-    } catch (e) {
+      const targetPos = new naver.maps.LatLng(selectedPlace.lat, selectedPlace.lng);
+      mapInstance.current.panTo(targetPos, {});
+      mapInstance.current.setZoom(15, true);
+    } catch (e: unknown) {
       console.error('Error panning to place:', e);
     }
   }, [selectedPlace]);
 
   return (
     <div className="relative w-full h-full min-h-[350px] bg-slate-900 overflow-hidden">
-      {/* Map Container */}
       <div ref={mapElement} className="w-full h-full" />
 
-      {/* Map Overlay Loading */}
       {!isScriptLoaded && !mapError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm z-10 text-white">
           <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
@@ -259,7 +257,6 @@ export default function NaverMap({
         </div>
       )}
 
-      {/* Map Error Banner */}
       {mapError && (
         <div className="absolute top-4 left-4 right-4 bg-slate-900/95 border border-rose-500/50 backdrop-blur-md text-rose-200 text-xs p-4 rounded-2xl z-20 flex items-start gap-3 shadow-2xl">
           <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
@@ -276,7 +273,6 @@ export default function NaverMap({
         </div>
       )}
 
-      {/* Route Summary Floating Badge */}
       {blocks.length > 1 && routes.length > 0 && !mapError && (
         <div className="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white px-4 py-2.5 rounded-2xl shadow-xl z-10 flex items-center gap-3">
           <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">

@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Place, ItineraryBlock, DayItinerary, RouteSegment } from '@/types/itinerary';
+import { ItineraryBlock, DayItinerary, RouteSegment } from '@/types/itinerary';
 import ItinerarySidebar from './ItinerarySidebar';
-import { ChevronUp, ChevronDown, List, Map } from 'lucide-react';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 
 interface MobileBottomSheetProps {
   planTitle: string;
@@ -13,6 +13,7 @@ interface MobileBottomSheetProps {
   activeDayIndex: number;
   setActiveDayIndex: (idx: number) => void;
   onSelectBlock: (block: ItineraryBlock) => void;
+  routes: RouteSegment[];
   planId?: string;
   onPlanSaved?: (newId: string) => void;
 }
@@ -42,7 +43,7 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
             <span className="truncate max-w-[180px]">{props.planTitle || '일정 목록'}</span>
             <span className="text-[11px] text-slate-400">({currentDayBlocks.length}개 장소)</span>
           </div>
-          <button className="p-1 text-slate-400 hover:text-white">
+          <button type="button" className="p-1 text-slate-400 hover:text-white">
             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
           </button>
         </div>
