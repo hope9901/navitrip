@@ -18,25 +18,27 @@
 ## 이슈 06: developers.naver.com vs ncloud.com Client ID 구분
 - **해결**: ncloud.com 전용 `ncpKeyId` 적용 및 구분 안내.
 
+## 이슈 07: `<input>` 폼 필드 `id` / `name` 속성 누락 경고
+- **해결**: `PlaceSearchCard` 및 `ItinerarySidebar`에 unique `id` 및 `name` 속성 부여.
+
+## 이슈 08: 데스크톱/모바일 동시 마운트로 인한 Duplicate Form Field ID & 검색 불능
+- **해결**: React 18 `useId()` 훅으로 동적 고유 ID 부여.
+
 ---
 
-## 이슈 08: 데스크톱/모바일 동시 마운트로 인한 Duplicate Form Field ID & 검색 불능 (★ 신규 개선)
+## 이슈 09: 광역/지역 키워드("제주도", "부산") 검색 시 결과 0건 반환 이슈 (★ 신규 개선)
 
 ### 1. 지적 및 문제점
-- **지적 내용**:
-  1. `Multiple form field elements in the same form have the same id attribute value` 콘솔 오류 발생.
-  2. 장소 검색이 동작하지 않는 현상.
+- **지적 내용**: "제주도", "강원도" 와 같은 광역 키워드로 검색 시 검색 결과가 0개로 표시되는 현상.
 
 ---
 
 ### 2. 원인 분석 (Root Cause)
-- **데스크톱 사이드바 (`ItinerarySidebar`)**와 **모바일 바텀시트 (`MobileBottomSheet`)**가 DOM에 동시에 마운트되면서, 하위 컴포넌트인 `PlaceSearchCard`와 `ItinerarySidebar` 내부의 `<input>` 엘리먼트에 동일한 고정 ID (`id="place-search-input"`, `id="plan-title-input"`)가 2개씩 생성됨.
-- 중복된 DOM ID로 인해 폼 제출(Submit) 이벤트 대상 이벤트를 브라우저가 오동작 처리하여 검색 폼 작동 불능 및 접근성 에러가 발생함.
+- `src/app/api/search/route.ts` 호출 시 `sort=comment` 옵션이 파라미터로 지정되어 있었음.
+- 네이버 지역 검색 API(`local.json`)에서 `sort=comment`는 특정 단일 상호명 검색 시에는 동작하지만, "제주도", "속초" 등 광역/지역 단어 검색 시에는 네이버 API 내부 정렬 필터링 과정에서 결과가 0건으로 누락 리턴됨.
 
 ---
 
 ### 3. 해결 대책 (Fix)
-- React 18+ 내장 **`useId()`** 훅을 활용하여 각 컴포넌트 인스턴스마다 100% 고유한(Unique) DOM ID를 동적으로 생성.
-- `PlaceSearchCard.tsx` ➔ `const searchInputId = useId();`
-- `ItinerarySidebar.tsx` ➔ `const titleInputId = useId();`
-- 데스크톱과 모바일 영역에서 각각 독립된 유일 ID가 부여되어 중복 ID 오류 및 검색 기능 장애를 완전 해결.
+- `sort=comment` 파라미터를 제거하고 네이버 지역 검색 기본 정렬(`random`/기본 유사도)로 변경.
+- "제주도", "속초", "강릉", "해운대" 등 단일 지역 키워드로 검색하더라도 네이버 장소 검색 결과 10건이 정상적으로 폭넓게 반환되도록 수정.

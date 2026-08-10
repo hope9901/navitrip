@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const res = await fetch(
-      `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=10&sort=comment`,
+      `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=10`,
       {
         headers: {
           'X-Naver-Client-Id': clientId,
