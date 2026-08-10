@@ -19,7 +19,7 @@ import {
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData } from '@/types/itinerary';
 import SortableBlockItem from './SortableBlockItem';
 import PlaceSearchCard from '../search/PlaceSearchCard';
-import { Plus, Share2, Calendar, MapPin, Navigation, Check, Sparkles } from 'lucide-react';
+import { Plus, Share2, Calendar, MapPin, Navigation, Check, Sparkles, Save } from 'lucide-react';
 import { savePlanToDB } from '@/lib/supabase';
 
 interface ItinerarySidebarProps {
@@ -52,6 +52,7 @@ export default function ItinerarySidebar({
 
   const [isSaving, setIsSaving] = useState(false);
   const [copiedShareUrl, setCopiedShareUrl] = useState(false);
+  const [isJustSaved, setIsJustSaved] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -131,6 +132,43 @@ export default function ItinerarySidebar({
     }
   };
 
+  // 1. [저장하기] 버튼 처리
+  const handleSaveOnly = async () => {
+    setIsSaving(true);
+    try {
+      const planData: PlanData = {
+        id: planId,
+        title: planTitle || '나의 여행 일정',
+        days,
+      };
+
+      const result = await savePlanToDB(planData);
+
+      if (onPlanSaved && result.id !== planId) {
+        onPlanSaved(result.id);
+      }
+
+      setIsJustSaved(true);
+      setSaveMessage(
+        result.isLocalFallback
+          ? '로컬 기기에 일정이 안전하게 저장되었습니다.'
+          : 'Supabase 데이터베이스에 일정이 저장되었습니다.'
+      );
+
+      setTimeout(() => {
+        setIsJustSaved(false);
+        setSaveMessage(null);
+      }, 3000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
+      console.error('Failed to save plan:', msg);
+      setSaveMessage('저장 중 오류가 발생했습니다.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 2. [일정 공유] 버튼 처리
   const handleSharePlan = async () => {
     setIsSaving(true);
     try {
@@ -144,7 +182,7 @@ export default function ItinerarySidebar({
 
       if (result.isLocalFallback) {
         setSaveMessage(
-          'Supabase에 저장되지 않아 다른 기기와 공유할 수 없습니다. 로컬에만 저장했습니다.'
+          'Supabase 설정 전이므로 공유 링크 생성이 제한됩니다. (로컬 저장 완료)'
         );
         return;
       }
@@ -176,7 +214,7 @@ export default function ItinerarySidebar({
 
   return (
     <div className="flex flex-col h-full bg-slate-950/95 backdrop-blur-xl border-r border-slate-800 text-slate-100 p-4 gap-4 overflow-hidden">
-      {/* Title & Share Header */}
+      {/* Title & Actions Header */}
       <div className="flex flex-col gap-2 pt-1">
         <div className="flex items-center justify-between gap-2">
           <input
@@ -185,33 +223,58 @@ export default function ItinerarySidebar({
             type="text"
             value={planTitle}
             onChange={(e) => setPlanTitle(e.target.value)}
-            placeholder="여행 제목 (예: 강원도 2박3일 식도락)"
+            placeholder="여행 제목 (예: 제주도 2박3일 힐링)"
             className="text-base font-extrabold bg-transparent text-white border-b border-transparent hover:border-slate-700 focus:border-emerald-500 focus:outline-none py-1 transition-all flex-1 truncate"
           />
 
-          <button
-            type="button"
-            onClick={handleSharePlan}
-            disabled={isSaving}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 shrink-0"
-          >
-            {copiedShareUrl ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-white" />
-                <span>복사완료!</span>
-              </>
-            ) : (
-              <>
-                <Share2 className="w-3.5 h-3.5" />
-                <span>일정 공유</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* [저장하기] 버튼 */}
+            <button
+              type="button"
+              onClick={handleSaveOnly}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition-all active:scale-95"
+              title="일정 저장"
+            >
+              {isJustSaved ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>저장완료</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>저장하기</span>
+                </>
+              )}
+            </button>
+
+            {/* [일정 공유] 버튼 */}
+            <button
+              type="button"
+              onClick={handleSharePlan}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95"
+              title="공유 링크 생성"
+            >
+              {copiedShareUrl ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-white" />
+                  <span>복사완료</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>공유하기</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {saveMessage && (
           <div className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5 animate-fadeIn">
-            <Sparkles className="w-3.5 h-3.5" />
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
             <span>{saveMessage}</span>
           </div>
         )}
