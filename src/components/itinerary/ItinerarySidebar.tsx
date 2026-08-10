@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useId } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -47,6 +47,9 @@ export default function ItinerarySidebar({
   planId,
   onPlanSaved,
 }: ItinerarySidebarProps) {
+  const titleInputId = useId();
+  const dndContextId = useId();
+
   const [isSaving, setIsSaving] = useState(false);
   const [copiedShareUrl, setCopiedShareUrl] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -177,7 +180,7 @@ export default function ItinerarySidebar({
       <div className="flex flex-col gap-2 pt-1">
         <div className="flex items-center justify-between gap-2">
           <input
-            id="plan-title-input"
+            id={titleInputId}
             name="planTitle"
             type="text"
             value={planTitle}
@@ -288,7 +291,7 @@ export default function ItinerarySidebar({
             <p className="text-[11px] text-slate-600">위 검색창에서 가고 싶은 곳을 검색한 후 [매핑하기] 버튼을 눌러보세요.</p>
           </div>
         ) : (
-          <DndContext id="itinerary-dnd-context" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <DndContext id={dndContextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
               <div className="flex flex-col gap-1">
                 {blocks.map((block, idx) => (

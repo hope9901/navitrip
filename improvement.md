@@ -20,18 +20,23 @@
 
 ---
 
-## 이슈 07: `<input>` 폼 필드 `id` / `name` 속성 누락 경고 (★ 신규 개선)
+## 이슈 08: 데스크톱/모바일 동시 마운트로 인한 Duplicate Form Field ID & 검색 불능 (★ 신규 개선)
 
 ### 1. 지적 및 문제점
-- **지적 내용**: 웹 브라우저의 폼 자동완성(Autofill) 및 접근성(SEO) 표준에 따라 `<input>` 폼 필드 엘리먼트에 `id` 또는 `name` 속성이 누락되면 콘솔 경고 메시지가 발생함.
+- **지적 내용**:
+  1. `Multiple form field elements in the same form have the same id attribute value` 콘솔 오류 발생.
+  2. 장소 검색이 동작하지 않는 현상.
 
 ---
 
-### 2. 원인 분석 및 해결 방안 (Fix)
-- `PlaceSearchCard.tsx`: 장소 검색 `<input>` 태그에 `id="place-search-input"`, `name="placeSearchQuery"`, `autoComplete="off"` 속성 추가.
-- `ItinerarySidebar.tsx`: 여행 제목 입력 `<input>` 태그에 `id="plan-title-input"`, `name="planTitle"` 속성 추가.
+### 2. 원인 분석 (Root Cause)
+- **데스크톱 사이드바 (`ItinerarySidebar`)**와 **모바일 바텀시트 (`MobileBottomSheet`)**가 DOM에 동시에 마운트되면서, 하위 컴포넌트인 `PlaceSearchCard`와 `ItinerarySidebar` 내부의 `<input>` 엘리먼트에 동일한 고정 ID (`id="place-search-input"`, `id="plan-title-input"`)가 2개씩 생성됨.
+- 중복된 DOM ID로 인해 폼 제출(Submit) 이벤트 대상 이벤트를 브라우저가 오동작 처리하여 검색 폼 작동 불능 및 접근성 에러가 발생함.
 
 ---
 
-### 3. 방지 대책 및 적용 수칙
-- 모든 사용자 입력을 받는 `<input>`, `<textarea>`, `<select>` 등의 폼 엘리먼트에는 고유한 `id` 및 `name` 속성을 필수로 선언하는 개발 수칙을 준수함.
+### 3. 해결 대책 (Fix)
+- React 18+ 내장 **`useId()`** 훅을 활용하여 각 컴포넌트 인스턴스마다 100% 고유한(Unique) DOM ID를 동적으로 생성.
+- `PlaceSearchCard.tsx` ➔ `const searchInputId = useId();`
+- `ItinerarySidebar.tsx` ➔ `const titleInputId = useId();`
+- 데스크톱과 모바일 영역에서 각각 독립된 유일 ID가 부여되어 중복 ID 오류 및 검색 기능 장애를 완전 해결.

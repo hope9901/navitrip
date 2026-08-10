@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useId } from 'react';
 import { Place } from '@/types/itinerary';
 import { Search, MapPin, ExternalLink, Plus, Loader2, Phone } from 'lucide-react';
 
@@ -9,6 +9,7 @@ interface PlaceSearchCardProps {
 }
 
 export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
+  const searchInputId = useId();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Place[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,7 +52,7 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
       {/* Search Bar */}
       <form onSubmit={handleSearch} className="relative w-full">
         <input
-          id="place-search-input"
+          id={searchInputId}
           name="placeSearchQuery"
           type="text"
           value={query}
