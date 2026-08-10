@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    let url = `https://naveropenapi.apigw.ntruss.com/map-direction/v5/finddriving?start=${start.lng},${start.lat}&goal=${goal.lng},${goal.lat}&option=trafast`;
+    let url = `https://maps.apigw.ntruss.com/map-direction/v1/driving?start=${start.lng},${start.lat}&goal=${goal.lng},${goal.lat}&option=trafast`;
 
     if (waypoints && Array.isArray(waypoints) && waypoints.length > 0) {
       const wpStr = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join('|');
@@ -85,14 +85,14 @@ export async function POST(request: NextRequest) {
 
     const res = await fetch(url, {
       headers: {
-        'X-NCP-APIGW-API-KEY-ID': ncpKeyId,
-        'X-NCP-APIGW-API-KEY': ncpKeySecret,
+        'x-ncp-apigw-api-key-id': ncpKeyId,
+        'x-ncp-apigw-api-key': ncpKeySecret,
       },
     });
 
     if (!res.ok) {
       const errText = await res.text();
-      console.warn('Naver Directions 5 API response not OK, using estimation fallback:', errText);
+      console.warn('Naver Directions API response not OK, using estimation fallback:', errText);
       const dist = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
       const durationSec = estimateDrivingTimeSeconds(dist);
 
