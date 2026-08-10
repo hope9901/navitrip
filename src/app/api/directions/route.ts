@@ -55,8 +55,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Start and goal coordinates required' }, { status: 400 });
     }
 
-    const ncpKeyId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || process.env.NAVER_CLIENT_ID;
-    const ncpKeySecret = process.env.NAVER_CLIENT_SECRET;
+    const ncpKeyId = process.env.NAVER_MAP_CLIENT_ID;
+    const ncpKeySecret = process.env.NAVER_MAP_CLIENT_SECRET;
 
     if (!ncpKeyId || !ncpKeySecret) {
       const dist = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);

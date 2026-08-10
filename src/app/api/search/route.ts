@@ -1,6 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Place } from '@/types/itinerary';
 
+type ApiServiceType = 'localSearch' | 'geocoding';
+type ApiErrorCode =
+  | 'NOT_CONFIGURED'
+  | 'AUTH_FAILED'
+  | 'FORBIDDEN'
+  | 'RATE_LIMITED'
+  | 'UPSTREAM_ERROR';
+
+class NaverApiError extends Error {
+  constructor(
+    public service: ApiServiceType,
+    public code: ApiErrorCode,
+    public status?: number
+  ) {
+    super(`${service}:${code}`);
+    this.name = 'NaverApiError';
+  }
+}
+
 interface NaverLocalSearchItem {
   title: string;
   category?: string;
@@ -38,6 +57,13 @@ interface NaverGeocodeResponse {
   errorMessage?: string;
 }
 
+function mapHttpStatusToErrorCode(status?: number): ApiErrorCode {
+  if (status === 401) return 'AUTH_FAILED';
+  if (status === 403) return 'FORBIDDEN';
+  if (status === 429) return 'RATE_LIMITED';
+  return 'UPSTREAM_ERROR';
+}
+
 function normalizeStr(str?: string): string {
   if (!str) return '';
   return str.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -66,33 +92,37 @@ function isDuplicate(a: Place, b: Place): boolean {
 }
 
 async function searchLocal(query: string): Promise<Place[]> {
-  const searchClientId = process.env.NAVER_SEARCH_CLIENT_ID || process.env.NAVER_CLIENT_ID;
-  const searchClientSecret = process.env.NAVER_SEARCH_CLIENT_SECRET || process.env.NAVER_CLIENT_SECRET;
+  const searchClientId = process.env.NAVER_SEARCH_CLIENT_ID;
+  const searchClientSecret = process.env.NAVER_SEARCH_CLIENT_SECRET;
 
   if (!searchClientId || !searchClientSecret) {
-    console.warn('[searchLocal] NAVER Search API client credentials missing');
-    throw new Error('NAVER_SEARCH_NOT_CONFIGURED');
+    throw new NaverApiError('localSearch', 'NOT_CONFIGURED');
   }
 
-  const res = await fetch(
-    `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=5&start=1&sort=random`,
-    {
-      headers: {
-        'X-Naver-Client-Id': searchClientId,
-        'X-Naver-Client-Secret': searchClientSecret,
-      },
-    }
-  );
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=5&start=1&sort=random`,
+      {
+        headers: {
+          'X-Naver-Client-Id': searchClientId,
+          'X-Naver-Client-Secret': searchClientSecret,
+        },
+      }
+    );
+  } catch (err) {
+    console.error('[searchLocal] Network fetch error:', err);
+    throw new NaverApiError('localSearch', 'UPSTREAM_ERROR');
+  }
 
   if (!res.ok) {
-    const errText = await res.text();
-    console.error('[searchLocal] Naver Local Search API Error:', res.status, errText);
-    throw new Error(`NAVER_SEARCH_API_FAILED_${res.status}`);
+    const code = mapHttpStatusToErrorCode(res.status);
+    console.error(`[searchLocal] API Error HTTP ${res.status}: ${code}`);
+    throw new NaverApiError('localSearch', code, res.status);
   }
 
   const data: NaverLocalSearchResponse = await res.json();
   const rawItems = data.items || [];
-
   const places: Place[] = [];
 
   for (let idx = 0; idx < rawItems.length; idx++) {
@@ -129,34 +159,38 @@ async function searchLocal(query: string): Promise<Place[]> {
 }
 
 async function geocodeAddress(query: string): Promise<Place[]> {
-  const mapClientId = process.env.NAVER_CLIENT_ID || process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
-  const mapClientSecret = process.env.NAVER_CLIENT_SECRET;
+  const mapClientId = process.env.NAVER_MAP_CLIENT_ID;
+  const mapClientSecret = process.env.NAVER_MAP_CLIENT_SECRET;
 
   if (!mapClientId || !mapClientSecret) {
-    console.warn('[geocodeAddress] NAVER Geocoding API client credentials missing');
-    throw new Error('NAVER_MAP_NOT_CONFIGURED');
+    throw new NaverApiError('geocoding', 'NOT_CONFIGURED');
   }
 
-  const res = await fetch(
-    `https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode?query=${encodeURIComponent(query)}`,
-    {
-      headers: {
-        'x-ncp-apigw-api-key-id': mapClientId,
-        'x-ncp-apigw-api-key': mapClientSecret,
-        Accept: 'application/json',
-      },
-    }
-  );
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode?query=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          'x-ncp-apigw-api-key-id': mapClientId,
+          'x-ncp-apigw-api-key': mapClientSecret,
+          Accept: 'application/json',
+        },
+      }
+    );
+  } catch (err) {
+    console.error('[geocodeAddress] Network fetch error:', err);
+    throw new NaverApiError('geocoding', 'UPSTREAM_ERROR');
+  }
 
   if (!res.ok) {
-    const errText = await res.text();
-    console.error('[geocodeAddress] Naver Geocoding API Error:', res.status, errText);
-    throw new Error(`NAVER_GEOCODE_API_FAILED_${res.status}`);
+    const code = mapHttpStatusToErrorCode(res.status);
+    console.error(`[geocodeAddress] API Error HTTP ${res.status}: ${code}`);
+    throw new NaverApiError('geocoding', code, res.status);
   }
 
   const data: NaverGeocodeResponse = await res.json();
   const addresses = data.addresses || [];
-
   const places: Place[] = [];
 
   for (let idx = 0; idx < addresses.length; idx++) {
@@ -199,29 +233,67 @@ export async function GET(request: NextRequest) {
 
   const query = rawQuery.trim();
 
+  // Safe env check log (existence boolean only)
+  if (process.env.NODE_ENV === 'development') {
+    console.info('[Naver API configuration]', {
+      mapClientIdConfigured: Boolean(process.env.NAVER_MAP_CLIENT_ID),
+      mapClientSecretConfigured: Boolean(process.env.NAVER_MAP_CLIENT_SECRET),
+      searchClientIdConfigured: Boolean(process.env.NAVER_SEARCH_CLIENT_ID),
+      searchClientSecretConfigured: Boolean(process.env.NAVER_SEARCH_CLIENT_SECRET),
+    });
+  }
+
   const [localResult, geocodeResult] = await Promise.allSettled([
     searchLocal(query),
     geocodeAddress(query),
   ]);
 
-  const placesFromLocal: Place[] = localResult.status === 'fulfilled' ? localResult.value : [];
-  const placesFromGeocode: Place[] = geocodeResult.status === 'fulfilled' ? geocodeResult.value : [];
+  const localSuccess = localResult.status === 'fulfilled';
+  const geocodeSuccess = geocodeResult.status === 'fulfilled';
 
-  if (localResult.status === 'rejected' && geocodeResult.status === 'rejected') {
-    const localErrReason = String(localResult.reason);
-    if (localErrReason.includes('NOT_CONFIGURED')) {
-      return NextResponse.json({
+  const localError = !localSuccess
+    ? (localResult.reason instanceof NaverApiError
+        ? localResult.reason
+        : new NaverApiError('localSearch', 'UPSTREAM_ERROR'))
+    : null;
+
+  const geocodeError = !geocodeSuccess
+    ? (geocodeResult.reason instanceof NaverApiError
+        ? geocodeResult.reason
+        : new NaverApiError('geocoding', 'UPSTREAM_ERROR'))
+    : null;
+
+  // Case 1: Both APIs failed
+  if (!localSuccess && !geocodeSuccess) {
+    const isAnyNotConfigured =
+      localError?.code === 'NOT_CONFIGURED' || geocodeError?.code === 'NOT_CONFIGURED';
+    const httpStatus = isAnyNotConfigured ? 503 : 502;
+
+    return NextResponse.json(
+      {
         items: [],
-        error: 'NAVER_SEARCH_NOT_CONFIGURED',
-        message: '검색 API 설정을 확인해 주세요.',
-      });
-    }
-    return NextResponse.json({
-      items: [],
-      error: 'NAVER_SEARCH_API_FAILED',
-      message: '장소 및 주소 검색 API 호출에 실패했습니다.',
-    });
+        error: 'NAVER_APIS_FAILED',
+        message: '장소 검색과 주소 검색에 모두 실패했습니다.',
+        services: {
+          localSearch: {
+            ok: false,
+            code: localError?.code || 'UPSTREAM_ERROR',
+            status: localError?.status || null,
+          },
+          geocoding: {
+            ok: false,
+            code: geocodeError?.code || 'UPSTREAM_ERROR',
+            status: geocodeError?.status || null,
+          },
+        },
+      },
+      { status: httpStatus }
+    );
   }
+
+  // Case 2: At least one API succeeded
+  const placesFromLocal: Place[] = localSuccess ? localResult.value : [];
+  const placesFromGeocode: Place[] = geocodeSuccess ? geocodeResult.value : [];
 
   const combinedRaw = [...placesFromGeocode, ...placesFromLocal];
 
@@ -268,5 +340,16 @@ export async function GET(request: NextRequest) {
     ...remainingPlaces,
   ];
 
-  return NextResponse.json({ items: sortedItems });
+  const warnings: Array<{ service: string; code: string }> = [];
+  if (localError) {
+    warnings.push({ service: 'localSearch', code: localError.code });
+  }
+  if (geocodeError) {
+    warnings.push({ service: 'geocoding', code: geocodeError.code });
+  }
+
+  return NextResponse.json({
+    items: sortedItems,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  });
 }

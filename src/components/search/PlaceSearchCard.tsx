@@ -9,6 +9,21 @@ interface PlaceSearchCardProps {
   onSelectPlace?: (place: Place) => void;
 }
 
+function getErrorMessageFromServiceCode(code?: string): string {
+  switch (code) {
+    case 'NOT_CONFIGURED':
+      return '네이버 API 키가 설정되지 않았습니다.';
+    case 'AUTH_FAILED':
+      return '네이버 API 인증에 실패했습니다. Client ID와 Secret을 확인해 주세요.';
+    case 'FORBIDDEN':
+      return '해당 네이버 API 서비스가 활성화되어 있는지 확인해 주세요.';
+    case 'RATE_LIMITED':
+      return '네이버 API 호출 한도를 초과했습니다.';
+    default:
+      return '검색 결과를 불러오지 못했습니다.';
+  }
+}
+
 export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSearchCardProps) {
   const searchInputId = useId();
   const [query, setQuery] = useState('');
@@ -16,6 +31,7 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [warningMsg, setWarningMsg] = useState<string | null>(null);
   const [addedMap, setAddedMap] = useState<Record<string, boolean>>({});
 
   const handleSearch = async (e?: React.FormEvent) => {
@@ -25,27 +41,47 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
     setLoading(true);
     setHasSearched(true);
     setErrorMsg(null);
+    setWarningMsg(null);
 
     try {
       const res = await fetch(`/api/search?query=${encodeURIComponent(query.trim())}`);
       const data = await res.json();
 
       if (!res.ok || data.error) {
-        if (data.error === 'NAVER_SEARCH_NOT_CONFIGURED') {
-          setErrorMsg('검색 API 설정을 확인해 주세요.');
-        } else {
-          setErrorMsg(data.message || '검색 결과를 불러오지 못했습니다.');
+        let msg = data.message || '검색 결과를 불러오지 못했습니다.';
+
+        if (data.services) {
+          const localCode = data.services.localSearch?.code;
+          const geocodeCode = data.services.geocoding?.code;
+
+          if (localCode === 'NOT_CONFIGURED') {
+            msg = '네이버 장소 검색 API 키가 설정되지 않았습니다.';
+          } else if (geocodeCode === 'NOT_CONFIGURED') {
+            msg = '네이버 주소 검색 API 키가 설정되지 않았습니다.';
+          } else if (localCode === 'AUTH_FAILED' || geocodeCode === 'AUTH_FAILED') {
+            msg = '네이버 API 인증에 실패했습니다. Client ID와 Secret을 확인해 주세요.';
+          } else if (localCode === 'FORBIDDEN' || geocodeCode === 'FORBIDDEN') {
+            msg = '해당 네이버 API 서비스가 활성화되어 있는지 확인해 주세요.';
+          } else if (localCode === 'RATE_LIMITED' || geocodeCode === 'RATE_LIMITED') {
+            msg = '네이버 API 호출 한도를 초과했습니다.';
+          }
         }
+
+        setErrorMsg(msg);
         setResults([]);
         return;
       }
 
+      if (data.warnings && Array.isArray(data.warnings) && data.warnings.length > 0) {
+        const firstWarn = data.warnings[0];
+        setWarningMsg(
+          `${firstWarn.service === 'localSearch' ? '장소' : '주소'} 검색: ${getErrorMessageFromServiceCode(firstWarn.code)}`
+        );
+      }
+
       if (data.items && Array.isArray(data.items)) {
         setResults(data.items);
-        if (data.items.length === 0) {
-          setErrorMsg(null);
-        } else if (onSelectPlace && data.items[0]) {
-          // Pan map to first search result
+        if (onSelectPlace && data.items[0]) {
           onSelectPlace(data.items[0]);
         }
       } else {
@@ -99,6 +135,14 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
         </button>
       </form>
 
+      {/* Partial Warning Banner */}
+      {warningMsg && (
+        <div className="px-3 py-1.5 text-[11px] bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-lg flex items-center gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+          <span>{warningMsg}</span>
+        </div>
+      )}
+
       {/* Search Results Drawer / Cards */}
       {hasSearched && (
         <div className="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
@@ -108,8 +152,8 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
               <span>네이버 장소 및 주소 검색 중...</span>
             </div>
           ) : errorMsg ? (
-            <div className="py-5 px-4 text-center text-xs bg-rose-950/40 border border-rose-800/60 rounded-xl text-rose-300 flex items-center justify-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <div className="py-5 px-4 text-center text-xs bg-rose-950/40 border border-rose-800/60 rounded-xl text-rose-300 flex flex-col items-center justify-center gap-2">
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           ) : results.length === 0 ? (
