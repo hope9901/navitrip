@@ -177,6 +177,8 @@ export default function ItinerarySidebar({
       <div className="flex flex-col gap-2 pt-1">
         <div className="flex items-center justify-between gap-2">
           <input
+            id="plan-title-input"
+            name="planTitle"
             type="text"
             value={planTitle}
             onChange={(e) => setPlanTitle(e.target.value)}
