@@ -1,9 +1,11 @@
 export interface Place {
   id: string;
+  type?: 'place' | 'address';
   title: string;
   category?: string;
   address: string;
   roadAddress?: string;
+  jibunAddress?: string;
   lat: number;
   lng: number;
   link?: string;

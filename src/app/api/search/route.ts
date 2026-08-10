@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Place } from '@/types/itinerary';
 
 interface NaverLocalSearchItem {
   title: string;
@@ -15,340 +16,249 @@ interface NaverLocalSearchResponse {
   items?: NaverLocalSearchItem[];
 }
 
-interface RegionPlaceItem {
-  title: string;
-  category: string;
-  address: string;
-  roadAddress: string;
-  lat: number;
-  lng: number;
-  link: string;
-  telephone: string;
+interface NaverGeocodeAddress {
+  roadAddress?: string;
+  jibunAddress?: string;
+  englishAddress?: string;
+  x: string; // Longitude
+  y: string; // Latitude
 }
 
-const REGION_DATABASE: Record<string, { center: { lat: number; lng: number }; places: RegionPlaceItem[] }> = {
-  제주: {
-    center: { lat: 33.4996, lng: 126.5312 },
-    places: [
-      {
-        title: '성산일출봉',
-        category: '여행 > 자연명소',
-        address: '제주특별자치도 서귀포시 성산읍 성산리 1',
-        roadAddress: '제주특별자치도 서귀포시 성산읍 일출로 284-12',
-        lat: 33.4581,
-        lng: 126.9425,
-        link: 'https://search.naver.com/search.naver?query=성산일출봉',
-        telephone: '064-783-0959',
-      },
-      {
-        title: '함덕해수욕장',
-        category: '여행 > 해수욕장',
-        address: '제주특별자치도 제주시 조천읍 함덕리 1004-10',
-        roadAddress: '제주특별자치도 제주시 조천읍 조함해안로 525',
-        lat: 33.5432,
-        lng: 126.6692,
-        link: 'https://search.naver.com/search.naver?query=함덕해수욕장',
-        telephone: '064-728-3989',
-      },
-      {
-        title: '섭지코지',
-        category: '여행 > 명소',
-        address: '제주특별자치도 서귀포시 성산읍 고성리 66',
-        roadAddress: '제주특별자치도 서귀포시 성산읍 섭지코지로 107',
-        lat: 33.4243,
-        lng: 126.9289,
-        link: 'https://search.naver.com/search.naver?query=섭지코지',
-        telephone: '064-740-6000',
-      },
-      {
-        title: '제주동문시장',
-        category: '전통시장',
-        address: '제주특별자치도 제주시 이도1동 1436-7',
-        roadAddress: '제주특별자치도 제주시 관덕로14길 20',
-        lat: 33.5126,
-        lng: 126.5284,
-        link: 'https://search.naver.com/search.naver?query=제주동문시장',
-        telephone: '064-752-3001',
-      },
-      {
-        title: '한라산국립공원',
-        category: '여행 > 국립공원',
-        address: '제주특별자치도 제주시 해안동 1100로 2070-61',
-        roadAddress: '제주특별자치도 제주시 1100로 2070-61',
-        lat: 33.3617,
-        lng: 126.5292,
-        link: 'https://search.naver.com/search.naver?query=한라산국립공원',
-        telephone: '064-713-9950',
-      },
-    ],
-  },
-  속초: {
-    center: { lat: 38.2045, lng: 128.5901 },
-    places: [
-      {
-        title: '속초해수욕장',
-        category: '여행 > 해수욕장',
-        address: '강원특별자치도 속초시 조양동',
-        roadAddress: '강원특별자치도 속초시 해오름로 186',
-        lat: 38.1906,
-        lng: 128.6033,
-        link: 'https://search.naver.com/search.naver?query=속초해수욕장',
-        telephone: '033-639-2690',
-      },
-      {
-        title: '속초관광수산시장 (중앙시장)',
-        category: '전통시장',
-        address: '강원특별자치도 속초시 중앙동 471-4',
-        roadAddress: '강원특별자치도 속초시 중앙로147번길 16',
-        lat: 38.2045,
-        lng: 128.5901,
-        link: 'https://search.naver.com/search.naver?query=속초관광수산시장',
-        telephone: '033-633-5420',
-      },
-      {
-        title: '아바이마을',
-        category: '여행 > 명소',
-        address: '강원특별자치도 속초시 청호동 1076',
-        roadAddress: '강원특별자치도 속초시 아바이마을길 22',
-        lat: 38.2012,
-        lng: 128.5954,
-        link: 'https://search.naver.com/search.naver?query=아바이마을',
-        telephone: '033-633-3177',
-      },
-      {
-        title: '영금정',
-        category: '여행 > 전망대',
-        address: '강원특별자치도 속초시 동명동 1-185',
-        roadAddress: '강원특별자치도 속초시 영금정로 43',
-        lat: 38.2119,
-        lng: 128.6015,
-        link: 'https://search.naver.com/search.naver?query=영금정',
-        telephone: '033-639-2690',
-      },
-    ],
-  },
-  강릉: {
-    center: { lat: 37.7519, lng: 128.8760 },
-    places: [
-      {
-        title: '경포해변',
-        category: '여행 > 해수욕장',
-        address: '강원특별자치도 강릉시 강문동 산1-1',
-        roadAddress: '강원특별자치도 강릉시 창해로 514',
-        lat: 37.8055,
-        lng: 128.9078,
-        link: 'https://search.naver.com/search.naver?query=경포해변',
-        telephone: '033-640-5129',
-      },
-      {
-        title: '안목해변 커피거리',
-        category: '음식점 > 카페거리',
-        address: '강원특별자치도 강릉시 견소동 286',
-        roadAddress: '강원특별자치도 강릉시 창해로 14',
-        lat: 37.7719,
-        lng: 128.9486,
-        link: 'https://search.naver.com/search.naver?query=안목해변+커피거리',
-        telephone: '033-640-4531',
-      },
-      {
-        title: '오죽헌',
-        category: '여행 > 유적지',
-        address: '강원특별자치도 강릉시 죽헌동 201',
-        roadAddress: '강원특별자치도 강릉시 율곡로3139번길 24',
-        lat: 37.7791,
-        lng: 128.8794,
-        link: 'https://search.naver.com/search.naver?query=오죽헌',
-        telephone: '033-660-3301',
-      },
-    ],
-  },
-  부산: {
-    center: { lat: 35.1796, lng: 129.0756 },
-    places: [
-      {
-        title: '해운대해수욕장',
-        category: '여행 > 해수욕장',
-        address: '부산광역시 해운대구 우동 1015',
-        roadAddress: '부산광역시 해운대구 해운대해변로 264',
-        lat: 35.1587,
-        lng: 129.1604,
-        link: 'https://search.naver.com/search.naver?query=해운대해수욕장',
-        telephone: '051-749-5700',
-      },
-      {
-        title: '광안리해수욕장',
-        category: '여행 > 해수욕장',
-        address: '부산광역시 수영구 광안동 192-20',
-        roadAddress: '부산광역시 수영구 광안해변로 219',
-        lat: 35.1532,
-        lng: 129.1189,
-        link: 'https://search.naver.com/search.naver?query=광안리해수욕장',
-        telephone: '051-610-4216',
-      },
-      {
-        title: '감천문화마을',
-        category: '여행 > 체험마을',
-        address: '부산광역시 사하구 감천동 2-188',
-        roadAddress: '부산광역시 사하구 감내2로 203',
-        lat: 35.0975,
-        lng: 129.0106,
-        link: 'https://search.naver.com/search.naver?query=감천문화마을',
-        telephone: '051-204-1444',
-      },
-    ],
-  },
-};
+interface NaverGeocodeResponse {
+  status: string;
+  addresses?: NaverGeocodeAddress[];
+  errorMessage?: string;
+}
 
-function getRegionOrFallback(query: string) {
-  const cleanKey = Object.keys(REGION_DATABASE).find((key) => query.includes(key));
-  if (cleanKey && REGION_DATABASE[cleanKey]) {
-    const regData = REGION_DATABASE[cleanKey];
-    return {
-      regionCenter: regData.center,
-      items: regData.places.map((p, idx) => ({
-        id: `reg_${idx}_${Date.now()}`,
-        ...p,
-      })),
-    };
+function normalizeStr(str?: string): string {
+  if (!str) return '';
+  return str.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function isValidKoreaCoordinate(lat: number, lng: number): boolean {
+  return !isNaN(lat) && !isNaN(lng) && lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132;
+}
+
+function isDuplicate(a: Place, b: Place): boolean {
+  const roadA = normalizeStr(a.roadAddress);
+  const roadB = normalizeStr(b.roadAddress);
+  if (roadA && roadB && roadA === roadB) return true;
+
+  const addrA = normalizeStr(a.address);
+  const addrB = normalizeStr(b.address);
+  if (addrA && addrB && addrA === addrB) return true;
+
+  const titleA = normalizeStr(a.title);
+  const titleB = normalizeStr(b.title);
+  const latDiff = Math.abs(a.lat - b.lat);
+  const lngDiff = Math.abs(a.lng - b.lng);
+  if (latDiff < 0.0001 && lngDiff < 0.0001 && titleA === titleB) return true;
+
+  return false;
+}
+
+async function searchLocal(query: string): Promise<Place[]> {
+  const searchClientId = process.env.NAVER_SEARCH_CLIENT_ID || process.env.NAVER_CLIENT_ID;
+  const searchClientSecret = process.env.NAVER_SEARCH_CLIENT_SECRET || process.env.NAVER_CLIENT_SECRET;
+
+  if (!searchClientId || !searchClientSecret) {
+    console.warn('[searchLocal] NAVER Search API client credentials missing');
+    throw new Error('NAVER_SEARCH_NOT_CONFIGURED');
   }
 
-  const baseLat = 37.5665;
-  const baseLng = 126.9780;
-  return {
-    regionCenter: { lat: baseLat, lng: baseLng },
-    items: [
-      {
-        id: `mock-1-${Date.now()}`,
-        title: `${query} 명소`,
-        category: '여행 > 관광명소',
-        address: '서울특별시 중구 세종대로 110',
-        roadAddress: '서울특별시 중구 세종대로 110',
-        lat: baseLat,
-        lng: baseLng,
-        link: `https://search.naver.com/search.naver?query=${encodeURIComponent(query + ' 명소')}`,
-        telephone: '02-1234-5678',
+  const res = await fetch(
+    `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=5&start=1&sort=random`,
+    {
+      headers: {
+        'X-Naver-Client-Id': searchClientId,
+        'X-Naver-Client-Secret': searchClientSecret,
       },
-      {
-        id: `mock-2-${Date.now()}`,
-        title: `${query} 인기 맛집`,
-        category: '음식점 > 한식',
-        address: '서울특별시 종로구 사직로 161',
-        roadAddress: '서울특별시 종로구 사직로 161',
-        lat: baseLat + 0.012,
-        lng: baseLng + 0.015,
-        link: `https://search.naver.com/search.naver?query=${encodeURIComponent(query + ' 맛집')}`,
-        telephone: '02-750-9876',
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('[searchLocal] Naver Local Search API Error:', res.status, errText);
+    throw new Error(`NAVER_SEARCH_API_FAILED_${res.status}`);
+  }
+
+  const data: NaverLocalSearchResponse = await res.json();
+  const rawItems = data.items || [];
+
+  const places: Place[] = [];
+
+  for (let idx = 0; idx < rawItems.length; idx++) {
+    const item = rawItems[idx];
+    const cleanTitle = item.title.replace(/<[^>]*>?/gm, '');
+
+    const lng = Number(item.mapx) / 1e7;
+    const lat = Number(item.mapy) / 1e7;
+
+    if (!isValidKoreaCoordinate(lat, lng)) {
+      console.warn(
+        `[searchLocal] Invalid coordinates excluded for place '${cleanTitle}': lat=${lat}, lng=${lng}`
+      );
+      continue;
+    }
+
+    places.push({
+      id: `place_${idx}_${Date.now()}`,
+      type: 'place',
+      title: cleanTitle,
+      category: item.category || '장소',
+      address: item.address,
+      roadAddress: item.roadAddress || undefined,
+      lat,
+      lng,
+      link: item.link && item.link.trim() ? item.link.trim() : undefined,
+      telephone: item.telephone && item.telephone.trim() ? item.telephone.trim() : undefined,
+      mapx: item.mapx,
+      mapy: item.mapy,
+    });
+  }
+
+  return places;
+}
+
+async function geocodeAddress(query: string): Promise<Place[]> {
+  const mapClientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || process.env.NAVER_CLIENT_ID;
+  const mapClientSecret = process.env.NAVER_CLIENT_SECRET;
+
+  if (!mapClientId || !mapClientSecret) {
+    console.warn('[geocodeAddress] NAVER Geocoding API client credentials missing');
+    throw new Error('NAVER_MAP_NOT_CONFIGURED');
+  }
+
+  const res = await fetch(
+    `https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode?query=${encodeURIComponent(query)}`,
+    {
+      headers: {
+        'x-ncp-apigw-api-key-id': mapClientId,
+        'x-ncp-apigw-api-key': mapClientSecret,
+        Accept: 'application/json',
       },
-      {
-        id: `mock-3-${Date.now()}`,
-        title: `${query} 뷰 좋은 카페`,
-        category: '카페 > 디저트',
-        address: '서울특별시 종로구 인사동길 44',
-        roadAddress: '서울특별시 종로구 인사동길 44',
-        lat: baseLat - 0.008,
-        lng: baseLng - 0.012,
-        link: `https://search.naver.com/search.naver?query=${encodeURIComponent(query + ' 카페')}`,
-        telephone: '02-799-5555',
-      },
-    ],
-  };
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('[geocodeAddress] Naver Geocoding API Error:', res.status, errText);
+    throw new Error(`NAVER_GEOCODE_API_FAILED_${res.status}`);
+  }
+
+  const data: NaverGeocodeResponse = await res.json();
+  const addresses = data.addresses || [];
+
+  const places: Place[] = [];
+
+  for (let idx = 0; idx < addresses.length; idx++) {
+    const addr = addresses[idx];
+    const lng = Number(addr.x);
+    const lat = Number(addr.y);
+
+    if (!isValidKoreaCoordinate(lat, lng)) {
+      console.warn(
+        `[geocodeAddress] Invalid coordinates excluded for address '${addr.roadAddress || addr.jibunAddress}': lat=${lat}, lng=${lng}`
+      );
+      continue;
+    }
+
+    const title = addr.roadAddress || addr.jibunAddress || query;
+
+    places.push({
+      id: `addr_${idx}_${Date.now()}`,
+      type: 'address',
+      title,
+      category: '주소',
+      address: addr.jibunAddress || addr.roadAddress || query,
+      roadAddress: addr.roadAddress || undefined,
+      jibunAddress: addr.jibunAddress || undefined,
+      lat,
+      lng,
+    });
+  }
+
+  return places;
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const query = searchParams.get('query');
+  const rawQuery = searchParams.get('query');
 
-  if (!query) {
+  if (!rawQuery || !rawQuery.trim()) {
     return NextResponse.json({ error: 'Query parameter is required' }, { status: 400 });
   }
 
-  const clientId = process.env.NAVER_CLIENT_ID || process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
-  const clientSecret = process.env.NAVER_CLIENT_SECRET;
+  const query = rawQuery.trim();
 
-  const fallbackData = getRegionOrFallback(query);
+  const [localResult, geocodeResult] = await Promise.allSettled([
+    searchLocal(query),
+    geocodeAddress(query),
+  ]);
 
-  if (!clientId || !clientSecret) {
+  const placesFromLocal: Place[] = localResult.status === 'fulfilled' ? localResult.value : [];
+  const placesFromGeocode: Place[] = geocodeResult.status === 'fulfilled' ? geocodeResult.value : [];
+
+  if (localResult.status === 'rejected' && geocodeResult.status === 'rejected') {
+    const localErrReason = String(localResult.reason);
+    if (localErrReason.includes('NOT_CONFIGURED')) {
+      return NextResponse.json({
+        items: [],
+        error: 'NAVER_SEARCH_NOT_CONFIGURED',
+        message: '검색 API 설정을 확인해 주세요.',
+      });
+    }
     return NextResponse.json({
-      regionCenter: fallbackData.regionCenter,
-      items: fallbackData.items,
-      isMock: true,
-      message: '네이버 API 키 미설정으로 지역 대표 장소가 표시됩니다.',
+      items: [],
+      error: 'NAVER_SEARCH_API_FAILED',
+      message: '장소 검색 API 호출에 실패했습니다.',
     });
   }
 
-  try {
-    const res = await fetch(
-      `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=10`,
-      {
-        headers: {
-          'X-Naver-Client-Id': clientId,
-          'X-Naver-Client-Secret': clientSecret,
-        },
-      }
-    );
+  const combinedRaw = [...placesFromGeocode, ...placesFromLocal];
 
-    if (!res.ok) {
-      return NextResponse.json({
-        regionCenter: fallbackData.regionCenter,
-        items: fallbackData.items,
-        isMock: true,
-      });
+  // Deduplication
+  const deduplicated: Place[] = [];
+  for (const item of combinedRaw) {
+    const isDup = deduplicated.some((existing) => isDuplicate(existing, item));
+    if (!isDup) {
+      deduplicated.push(item);
     }
-
-    const data: NaverLocalSearchResponse = await res.json();
-    const items = (data.items || []).map((item, idx) => {
-      const cleanTitle = item.title.replace(/<[^>]*>?/gm, '');
-
-      let lng = parseFloat(item.mapx) / 10000000;
-      let lat = parseFloat(item.mapy) / 10000000;
-
-      if (lat < 30 || lat > 45 || lng < 120 || lng > 135) {
-        lng = parseFloat(item.mapx) / 1000000;
-        lat = parseFloat(item.mapy) / 1000000;
-      }
-      if (lat < 30 || lat > 45 || lng < 120 || lng > 135) {
-        lat = fallbackData.regionCenter.lat;
-        lng = fallbackData.regionCenter.lng;
-      }
-
-      const naverSearchLink = item.link || `https://search.naver.com/search.naver?query=${encodeURIComponent(cleanTitle + ' ' + (item.roadAddress || item.address))}`;
-
-      return {
-        id: `naver_${idx}_${Date.now()}`,
-        title: cleanTitle,
-        category: item.category,
-        address: item.address,
-        roadAddress: item.roadAddress,
-        lat,
-        lng,
-        link: naverSearchLink,
-        telephone: item.telephone,
-        mapx: item.mapx,
-        mapy: item.mapy,
-      };
-    });
-
-    if (items.length === 0) {
-      return NextResponse.json({
-        regionCenter: fallbackData.regionCenter,
-        items: fallbackData.items,
-        isMock: true,
-      });
-    }
-
-    const regionCenter = {
-      lat: items[0].lat || fallbackData.regionCenter.lat,
-      lng: items[0].lng || fallbackData.regionCenter.lng,
-    };
-
-    return NextResponse.json({ regionCenter, items, isMock: false });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    console.error('Search Route Error:', message);
-    return NextResponse.json({
-      regionCenter: fallbackData.regionCenter,
-      items: fallbackData.items,
-      isMock: true,
-    });
   }
+
+  // Ranking / Sorting Rule:
+  // 1. Places where clean title exactly equals user query
+  // 2. Places where clean title includes user query
+  // 3. Geocoding address results
+  // 4. Remaining place results
+  const normQuery = normalizeStr(query);
+
+  const exactMatchPlaces: Place[] = [];
+  const includesPlaces: Place[] = [];
+  const geocodeAddresses: Place[] = [];
+  const remainingPlaces: Place[] = [];
+
+  for (const item of deduplicated) {
+    if (item.type === 'address') {
+      geocodeAddresses.push(item);
+    } else {
+      const normTitle = normalizeStr(item.title);
+      if (normTitle === normQuery) {
+        exactMatchPlaces.push(item);
+      } else if (normTitle.includes(normQuery)) {
+        includesPlaces.push(item);
+      } else {
+        remainingPlaces.push(item);
+      }
+    }
+  }
+
+  const sortedItems = [
+    ...exactMatchPlaces,
+    ...includesPlaces,
+    ...geocodeAddresses,
+    ...remainingPlaces,
+  ];
+
+  return NextResponse.json({ items: sortedItems });
 }

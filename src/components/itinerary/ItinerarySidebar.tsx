@@ -30,7 +30,6 @@ interface ItinerarySidebarProps {
   activeDayIndex: number;
   setActiveDayIndex: (idx: number) => void;
   onSelectBlock: (block: ItineraryBlock) => void;
-  onRegionFound?: (center: { lat: number; lng: number }) => void;
   routes: RouteSegment[];
   planId?: string;
   onPlanSaved?: (newId: string) => void;
@@ -44,7 +43,6 @@ export default function ItinerarySidebar({
   activeDayIndex,
   setActiveDayIndex,
   onSelectBlock,
-  onRegionFound,
   routes,
   planId,
   onPlanSaved,
@@ -88,9 +86,7 @@ export default function ItinerarySidebar({
       return newDays;
     });
 
-    if (onRegionFound) {
-      onRegionFound({ lat: place.lat, lng: place.lng });
-    }
+    onSelectBlock(newBlock);
   };
 
   const handleRemoveBlock = (blockId: string) => {
@@ -227,7 +223,7 @@ export default function ItinerarySidebar({
             type="text"
             value={planTitle}
             onChange={(e) => setPlanTitle(e.target.value)}
-            placeholder="여행 제목 (예: 제주도 2박3일 힐링)"
+            placeholder="여행 제목 (예: 순천 1박2일 힐링 여행)"
             className="text-base font-extrabold bg-transparent text-white border-b border-transparent hover:border-slate-700 focus:border-emerald-500 focus:outline-none py-1 transition-all flex-1 truncate"
           />
 
@@ -328,7 +324,6 @@ export default function ItinerarySidebar({
           onSelectPlace={(p) => {
             onSelectBlock({ id: '', place: p, dayIndex: activeDayIndex });
           }}
-          onRegionFound={onRegionFound}
         />
       </div>
 
@@ -359,7 +354,7 @@ export default function ItinerarySidebar({
           <div className="flex flex-col items-center justify-center py-12 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl p-6 gap-2">
             <MapPin className="w-8 h-8 text-slate-600" />
             <p className="text-xs font-medium">아직 등록된 장소가 없습니다.</p>
-            <p className="text-[11px] text-slate-600">위 검색창에서 가고 싶은 곳을 검색한 후 [매핑하기] 버튼을 눌러보세요.</p>
+            <p className="text-[11px] text-slate-600">위 검색창에서 가고 싶은 곳을 검색한 후 [일정에 추가] 버튼을 눌러보세요.</p>
           </div>
         ) : (
           <DndContext id={dndContextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

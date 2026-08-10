@@ -99,16 +99,6 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     setSelectedPlace(block.place);
   };
 
-  const handleRegionFound = (center: { lat: number; lng: number }) => {
-    setSelectedPlace({
-      id: `region_${Date.now()}`,
-      title: '검색 위치',
-      address: '',
-      lat: center.lat,
-      lng: center.lng,
-    });
-  };
-
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center w-screen h-screen bg-slate-950 text-white gap-4">
@@ -143,7 +133,6 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     activeDayIndex,
     setActiveDayIndex,
     onSelectBlock: handleSelectBlock,
-    onRegionFound: handleRegionFound,
     routes,
     planId,
   };
