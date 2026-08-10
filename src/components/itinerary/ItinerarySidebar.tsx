@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useId } from 'react';
+import React, { useState, useId, useSyncExternalStore } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -57,6 +57,15 @@ interface ItinerarySidebarProps {
   onNewPlan?: () => void;
 }
 
+const emptySubscribe = () => () => {};
+function useIsMounted() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+}
+
 export default function ItinerarySidebar({
   planTitle,
   setPlanTitle,
@@ -74,6 +83,7 @@ export default function ItinerarySidebar({
   onLoadPlan,
   onNewPlan,
 }: ItinerarySidebarProps) {
+  const isMounted = useIsMounted();
   const titleInputId = useId();
   const dndContextId = useId();
 
@@ -88,8 +98,8 @@ export default function ItinerarySidebar({
   const [savedPlansList, setSavedPlansList] = useState<SavedPlanSummary[]>([]);
   const [loadingPlansList, setLoadingPlansList] = useState(false);
 
-  const normalizedUser = userName.trim().toLowerCase();
-  const isAdmin = normalizedUser === 'admin' || userName.trim() === '어드민';
+  const normalizedUser = (userName || '').trim().toLowerCase();
+  const isAdmin = isMounted && (normalizedUser === 'admin' || userName.trim() === '어드민');
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
