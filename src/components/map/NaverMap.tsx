@@ -25,7 +25,12 @@ export default function NaverMap({
   const polylinesRef = useRef<naver.maps.Polyline[]>([]);
   const infoWindowRef = useRef<naver.maps.InfoWindow | null>(null);
 
-  const [isScriptLoaded, setIsScriptLoaded] = useState(false);
+  const [isScriptLoaded, setIsScriptLoaded] = useState(() => {
+    if (typeof window !== 'undefined' && window.naver && window.naver.maps) {
+      return true;
+    }
+    return false;
+  });
   const [mapError, setMapError] = useState<string | null>(null);
 
   // Load Naver Map Script dynamically with ncpKeyId
@@ -33,15 +38,16 @@ export default function NaverMap({
     if (typeof window === 'undefined') return;
 
     if (window.naver && window.naver.maps) {
-      setIsScriptLoaded(true);
       return;
     }
 
     const ncpKeyId = clientId || process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || '';
 
     if (!ncpKeyId || ncpKeyId.includes('your_')) {
-      setMapError('네이버 Client ID가 .env.local에 설정되지 않았습니다.');
-      return;
+      const timer = setTimeout(() => {
+        setMapError('네이버 Client ID가 .env.local에 설정되지 않았습니다.');
+      }, 0);
+      return () => clearTimeout(timer);
     }
 
     const scriptId = 'naver-map-script';
@@ -95,7 +101,10 @@ export default function NaverMap({
       });
     } catch (e: unknown) {
       console.error('Failed to initialize Naver Map:', e);
-      setMapError('네이버 지도 인증 실패 (NCP 콘솔의 Web 서비스 URL 설정을 확인해 주세요)');
+      const timer = setTimeout(() => {
+        setMapError('네이버 지도 인증 실패 (NCP 콘솔의 Web 서비스 URL 설정을 확인해 주세요)');
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [isScriptLoaded]);
 
@@ -284,7 +293,7 @@ export default function NaverMap({
               <span>
                 {routes.reduce((acc, r) => acc + r.distanceMeter, 0) >= 1000
                   ? `${(routes.reduce((acc, r) => acc + r.distanceMeter, 0) / 1000).toFixed(1)}km`
-                  : `${routes.reduce((acc, r) => acc + r.distanceMeter, 0)}m`}
+                  : `${routes.reduce((acc, r) => acc + r.durationSeconds, 0)}m`}
               </span>
               <span className="text-slate-500">•</span>
               <span className="text-emerald-400">
