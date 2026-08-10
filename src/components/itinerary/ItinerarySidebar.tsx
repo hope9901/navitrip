@@ -30,6 +30,7 @@ interface ItinerarySidebarProps {
   activeDayIndex: number;
   setActiveDayIndex: (idx: number) => void;
   onSelectBlock: (block: ItineraryBlock) => void;
+  onRegionFound?: (center: { lat: number; lng: number }) => void;
   routes: RouteSegment[];
   planId?: string;
   onPlanSaved?: (newId: string) => void;
@@ -43,6 +44,7 @@ export default function ItinerarySidebar({
   activeDayIndex,
   setActiveDayIndex,
   onSelectBlock,
+  onRegionFound,
   routes,
   planId,
   onPlanSaved,
@@ -85,6 +87,10 @@ export default function ItinerarySidebar({
       };
       return newDays;
     });
+
+    if (onRegionFound) {
+      onRegionFound({ lat: place.lat, lng: place.lng });
+    }
   };
 
   const handleRemoveBlock = (blockId: string) => {
@@ -132,7 +138,6 @@ export default function ItinerarySidebar({
     }
   };
 
-  // 1. [저장하기] 버튼 처리
   const handleSaveOnly = async () => {
     setIsSaving(true);
     try {
@@ -168,7 +173,6 @@ export default function ItinerarySidebar({
     }
   };
 
-  // 2. [일정 공유] 버튼 처리
   const handleSharePlan = async () => {
     setIsSaving(true);
     try {
@@ -228,7 +232,6 @@ export default function ItinerarySidebar({
           />
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* [저장하기] 버튼 */}
             <button
               type="button"
               onClick={handleSaveOnly}
@@ -249,7 +252,6 @@ export default function ItinerarySidebar({
               )}
             </button>
 
-            {/* [일정 공유] 버튼 */}
             <button
               type="button"
               onClick={handleSharePlan}
@@ -321,7 +323,13 @@ export default function ItinerarySidebar({
 
       {/* Place Search Card Component */}
       <div className="shrink-0">
-        <PlaceSearchCard onAddPlace={handleAddPlace} />
+        <PlaceSearchCard
+          onAddPlace={handleAddPlace}
+          onSelectPlace={(p) => {
+            onSelectBlock({ id: '', place: p, dayIndex: activeDayIndex });
+          }}
+          onRegionFound={onRegionFound}
+        />
       </div>
 
       {/* Day Summary Badge */}

@@ -13,6 +13,7 @@ interface MobileBottomSheetProps {
   activeDayIndex: number;
   setActiveDayIndex: (idx: number) => void;
   onSelectBlock: (block: ItineraryBlock) => void;
+  onRegionFound?: (center: { lat: number; lng: number }) => void;
   routes: RouteSegment[];
   planId?: string;
   onPlanSaved?: (newId: string) => void;

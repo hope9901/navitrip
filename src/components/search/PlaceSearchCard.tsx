@@ -6,9 +6,11 @@ import { Search, MapPin, ExternalLink, Plus, Loader2, Phone } from 'lucide-react
 
 interface PlaceSearchCardProps {
   onAddPlace: (place: Place) => void;
+  onSelectPlace?: (place: Place) => void;
+  onRegionFound?: (center: { lat: number; lng: number }) => void;
 }
 
-export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
+export default function PlaceSearchCard({ onAddPlace, onSelectPlace, onRegionFound }: PlaceSearchCardProps) {
   const searchInputId = useId();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Place[]>([]);
@@ -31,6 +33,11 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
       } else {
         setResults([]);
       }
+
+      // Pan map to searched region center immediately (Naver Map App UX)
+      if (data.regionCenter && onRegionFound) {
+        onRegionFound(data.regionCenter);
+      }
     } catch (err) {
       console.error('Search failed:', err);
       setResults([]);
@@ -47,6 +54,12 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
     }, 1500);
   };
 
+  const handleCardClick = (place: Place) => {
+    if (onSelectPlace) {
+      onSelectPlace(place);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-3 w-full">
       {/* Search Bar */}
@@ -57,7 +70,7 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="방문하고 싶은 장소/식당 검색 (예: 속초 중앙시장)"
+          placeholder="지역/명소 검색 (예: 제주도, 속초, 강릉)"
           autoComplete="off"
           className="w-full pl-10 pr-24 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-inner"
         />
@@ -77,7 +90,7 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
           {loading ? (
             <div className="py-8 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
               <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
-              <span>네이버 장소 검색 중...</span>
+              <span>네이버 지도 위치 검색 중...</span>
             </div>
           ) : results.length === 0 ? (
             <div className="py-6 text-center text-slate-400 text-xs bg-slate-900/40 rounded-xl border border-slate-800">
@@ -89,7 +102,8 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
               return (
                 <div
                   key={place.id}
-                  className="p-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-xl transition-all flex flex-col gap-2 group shadow-sm hover:shadow-md"
+                  onClick={() => handleCardClick(place)}
+                  className="p-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-xl transition-all flex flex-col gap-2 group shadow-sm hover:shadow-md cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -117,7 +131,7 @@ export default function PlaceSearchCard({ onAddPlace }: PlaceSearchCardProps) {
                   </div>
 
                   {/* Actions Bar */}
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-700/50 mt-1">
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-700/50 mt-1" onClick={(e) => e.stopPropagation()}>
                     {place.link ? (
                       <a
                         href={place.link}
