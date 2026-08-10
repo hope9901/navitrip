@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { RouteSegment } from '@/types/itinerary';
 
 function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3;
@@ -46,43 +47,31 @@ interface DirectionsRequestBody {
   waypoints?: Point[];
 }
 
-export async function POST(request: NextRequest) {
+async function fetchSegmentRoute(
+  start: Point,
+  goal: Point,
+  ncpKeyId?: string,
+  ncpKeySecret?: string
+): Promise<RouteSegment> {
+  const fallbackDistance = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
+  const fallbackDuration = estimateDrivingTimeSeconds(fallbackDistance);
+  const fallbackSegment: RouteSegment = {
+    distanceMeter: fallbackDistance,
+    durationSeconds: fallbackDuration,
+    formattedDistance: formatDistance(fallbackDistance),
+    formattedDuration: formatDuration(fallbackDuration),
+    path: [
+      [start.lat, start.lng],
+      [goal.lat, goal.lng],
+    ],
+  };
+
+  if (!ncpKeyId || !ncpKeySecret) {
+    return fallbackSegment;
+  }
+
   try {
-    const body: DirectionsRequestBody = await request.json();
-    const { start, goal, waypoints } = body;
-
-    if (!start || !goal) {
-      return NextResponse.json({ error: 'Start and goal coordinates required' }, { status: 400 });
-    }
-
-    const ncpKeyId = process.env.NAVER_MAP_CLIENT_ID;
-    const ncpKeySecret = process.env.NAVER_MAP_CLIENT_SECRET;
-
-    if (!ncpKeyId || !ncpKeySecret) {
-      const dist = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
-      const durationSec = estimateDrivingTimeSeconds(dist);
-
-      return NextResponse.json({
-        distanceMeter: dist,
-        durationSeconds: durationSec,
-        formattedDistance: formatDistance(dist),
-        formattedDuration: formatDuration(durationSec),
-        path: [
-          [start.lat, start.lng],
-          [goal.lat, goal.lng],
-        ],
-        isFallback: true,
-        message: '네이버 NCP API 키 설정 전이므로 예상 자동차 시간이 표시됩니다.',
-      });
-    }
-
-    let url = `https://maps.apigw.ntruss.com/map-direction/v1/driving?start=${start.lng},${start.lat}&goal=${goal.lng},${goal.lat}&option=trafast`;
-
-    if (waypoints && Array.isArray(waypoints) && waypoints.length > 0) {
-      const wpStr = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join('|');
-      url += `&waypoints=${wpStr}`;
-    }
-
+    const url = `https://maps.apigw.ntruss.com/map-direction/v1/driving?start=${start.lng},${start.lat}&goal=${goal.lng},${goal.lat}&option=trafast`;
     const res = await fetch(url, {
       headers: {
         'x-ncp-apigw-api-key-id': ncpKeyId,
@@ -91,22 +80,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!res.ok) {
-      const errText = await res.text();
-      console.warn('Naver Directions API response not OK, using estimation fallback:', errText);
-      const dist = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
-      const durationSec = estimateDrivingTimeSeconds(dist);
-
-      return NextResponse.json({
-        distanceMeter: dist,
-        durationSeconds: durationSec,
-        formattedDistance: formatDistance(dist),
-        formattedDuration: formatDuration(durationSec),
-        path: [
-          [start.lat, start.lng],
-          [goal.lat, goal.lng],
-        ],
-        isFallback: true,
-      });
+      return fallbackSegment;
     }
 
     const data = await res.json();
@@ -117,29 +91,57 @@ export async function POST(request: NextRequest) {
       const path: Array<[number, number]> = (route.path || []).map(([lng, lat]: [number, number]) => [lat, lng]);
       const durationSec = Math.round((summary.duration || 0) / 1000);
 
-      return NextResponse.json({
+      return {
         distanceMeter: summary.distance,
         durationSeconds: durationSec,
         formattedDistance: formatDistance(summary.distance),
         formattedDuration: formatDuration(durationSec),
-        path,
-        isFallback: false,
+        path: path.length > 0 ? path : [[start.lat, start.lng], [goal.lat, goal.lng]],
+      };
+    }
+
+    return fallbackSegment;
+  } catch (err) {
+    console.warn('[Directions] Failed to fetch segment, using estimation:', err);
+    return fallbackSegment;
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body: DirectionsRequestBody = await request.json();
+    const { start, goal, waypoints } = body;
+
+    const ncpKeyId = process.env.NAVER_MAP_CLIENT_ID;
+    const ncpKeySecret = process.env.NAVER_MAP_CLIENT_SECRET;
+
+    // Case A: Received waypoints array (Leg-by-leg calculation for N places)
+    if (waypoints && Array.isArray(waypoints) && waypoints.length >= 2) {
+      const segmentPromises: Promise<RouteSegment>[] = [];
+
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        segmentPromises.push(
+          fetchSegmentRoute(waypoints[i], waypoints[i + 1], ncpKeyId, ncpKeySecret)
+        );
+      }
+
+      const routes = await Promise.all(segmentPromises);
+      return NextResponse.json({ routes });
+    }
+
+    // Case B: Received start and goal (Single pair)
+    if (start && goal) {
+      const segment = await fetchSegmentRoute(start, goal, ncpKeyId, ncpKeySecret);
+      return NextResponse.json({
+        routes: [segment],
+        ...segment,
       });
     }
 
-    const dist = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
-    const durationSec = estimateDrivingTimeSeconds(dist);
-    return NextResponse.json({
-      distanceMeter: dist,
-      durationSeconds: durationSec,
-      formattedDistance: formatDistance(dist),
-      formattedDuration: formatDuration(durationSec),
-      path: [
-        [start.lat, start.lng],
-        [goal.lat, goal.lng],
-      ],
-      isFallback: true,
-    });
+    return NextResponse.json(
+      { error: 'Valid waypoints array or start/goal coordinates required' },
+      { status: 400 }
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Internal server error';
     console.error('Directions API error:', message);

@@ -22,8 +22,8 @@ export interface ItineraryBlock {
 }
 
 export interface RouteSegment {
-  fromBlockId: string;
-  toBlockId: string;
+  fromBlockId?: string;
+  toBlockId?: string;
   distanceMeter: number;
   durationSeconds: number;
   formattedDistance: string;
