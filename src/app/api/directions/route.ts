@@ -51,7 +51,6 @@ export async function POST(request: NextRequest) {
 
     // Check if NCP API credentials available
     if (!ncpKeyId || !ncpKeySecret) {
-      // Return Haversine estimated driving distance & duration
       const dist = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
       const durationSec = estimateDrivingTimeSeconds(dist);
 
@@ -69,9 +68,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Call Naver Directions 5 API
-    // Format: start=lng,lat&goal=lng,lat
-    let url = `https://naveropenapi.apigw.ntruss.com/map-direction/v5/finddriving?start=${start.lng},${start.lat}&goal=${goal.lng},${goal.lat}&option=traast`;
+    // Call Naver Directions 5 API with correct option=trafast (실시간 빠른길)
+    let url = `https://naveropenapi.apigw.ntruss.com/map-direction/v5/finddriving?start=${start.lng},${start.lat}&goal=${goal.lng},${goal.lat}&option=trafast`;
 
     if (waypoints && Array.isArray(waypoints) && waypoints.length > 0) {
       const wpStr = waypoints.map((wp: { lat: number; lng: number }) => `${wp.lng},${wp.lat}`).join('|');
@@ -105,7 +103,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await res.json();
-    const route = data.route?.traast?.[0] || data.route?.trafast?.[0] || data.route?.summary;
+    const route = data.route?.trafast?.[0] || data.route?.traoptimal?.[0] || data.route?.summary;
 
     if (route) {
       const summary = route.summary;
