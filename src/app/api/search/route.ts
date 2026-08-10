@@ -13,7 +13,9 @@ class NaverApiError extends Error {
   constructor(
     public service: ApiServiceType,
     public code: ApiErrorCode,
-    public status?: number
+    public status?: number,
+    public naverErrorCode?: string,
+    public naverErrorMessage?: string
   ) {
     super(`${service}:${code}`);
     this.name = 'NaverApiError';
@@ -33,6 +35,8 @@ interface NaverLocalSearchItem {
 
 interface NaverLocalSearchResponse {
   items?: NaverLocalSearchItem[];
+  errorCode?: string;
+  errorMessage?: string;
 }
 
 interface NaverGeocodeAddressElement {
@@ -55,6 +59,11 @@ interface NaverGeocodeResponse {
   status: string;
   addresses?: NaverGeocodeAddress[];
   errorMessage?: string;
+  error?: {
+    errorCode?: string;
+    message?: string;
+    details?: string;
+  };
 }
 
 function mapHttpStatusToErrorCode(status?: number): ApiErrorCode {
@@ -111,14 +120,29 @@ async function searchLocal(query: string): Promise<Place[]> {
       }
     );
   } catch (err) {
-    console.error('[searchLocal] Network fetch error:', err);
+    console.error('[localSearch] Network fetch error:', err);
     throw new NaverApiError('localSearch', 'UPSTREAM_ERROR');
   }
 
   if (!res.ok) {
+    let naverCode = 'UNKNOWN';
+    let naverMsg = 'UNKNOWN';
+    try {
+      const errJson = await res.json();
+      naverCode = String(errJson.errorCode || errJson.code || 'UNKNOWN');
+      naverMsg = String(errJson.errorMessage || errJson.message || 'UNKNOWN');
+    } catch {
+      // ignore json parse error
+    }
+
+    console.error('[localSearch]', {
+      status: res.status,
+      errorCode: naverCode,
+      errorMessage: naverMsg,
+    });
+
     const code = mapHttpStatusToErrorCode(res.status);
-    console.error(`[searchLocal] API Error HTTP ${res.status}: ${code}`);
-    throw new NaverApiError('localSearch', code, res.status);
+    throw new NaverApiError('localSearch', code, res.status, naverCode, naverMsg);
   }
 
   const data: NaverLocalSearchResponse = await res.json();
@@ -184,9 +208,24 @@ async function geocodeAddress(query: string): Promise<Place[]> {
   }
 
   if (!res.ok) {
+    let naverCode = 'UNKNOWN';
+    let naverMsg = 'UNKNOWN';
+    try {
+      const errJson = await res.json();
+      naverCode = String(errJson.error?.errorCode || errJson.errorCode || errJson.code || 'UNKNOWN');
+      naverMsg = String(errJson.error?.message || errJson.error?.details || errJson.errorMessage || 'UNKNOWN');
+    } catch {
+      // ignore json parse error
+    }
+
+    console.error('[geocodeAddress]', {
+      status: res.status,
+      errorCode: naverCode,
+      errorMessage: naverMsg,
+    });
+
     const code = mapHttpStatusToErrorCode(res.status);
-    console.error(`[geocodeAddress] API Error HTTP ${res.status}: ${code}`);
-    throw new NaverApiError('geocoding', code, res.status);
+    throw new NaverApiError('geocoding', code, res.status, naverCode, naverMsg);
   }
 
   const data: NaverGeocodeResponse = await res.json();
@@ -233,16 +272,6 @@ export async function GET(request: NextRequest) {
 
   const query = rawQuery.trim();
 
-  // Safe env check log (existence boolean only)
-  if (process.env.NODE_ENV === 'development') {
-    console.info('[Naver API configuration]', {
-      mapClientIdConfigured: Boolean(process.env.NAVER_MAP_CLIENT_ID),
-      mapClientSecretConfigured: Boolean(process.env.NAVER_MAP_CLIENT_SECRET),
-      searchClientIdConfigured: Boolean(process.env.NAVER_SEARCH_CLIENT_ID),
-      searchClientSecretConfigured: Boolean(process.env.NAVER_SEARCH_CLIENT_SECRET),
-    });
-  }
-
   const [localResult, geocodeResult] = await Promise.allSettled([
     searchLocal(query),
     geocodeAddress(query),
@@ -279,11 +308,13 @@ export async function GET(request: NextRequest) {
             ok: false,
             code: localError?.code || 'UPSTREAM_ERROR',
             status: localError?.status || null,
+            naverErrorCode: localError?.naverErrorCode || null,
           },
           geocoding: {
             ok: false,
             code: geocodeError?.code || 'UPSTREAM_ERROR',
             status: geocodeError?.status || null,
+            naverErrorCode: geocodeError?.naverErrorCode || null,
           },
         },
       },
@@ -340,12 +371,12 @@ export async function GET(request: NextRequest) {
     ...remainingPlaces,
   ];
 
-  const warnings: Array<{ service: string; code: string }> = [];
+  const warnings: Array<{ service: string; code: string; naverErrorCode?: string }> = [];
   if (localError) {
-    warnings.push({ service: 'localSearch', code: localError.code });
+    warnings.push({ service: 'localSearch', code: localError.code, naverErrorCode: localError.naverErrorCode });
   }
   if (geocodeError) {
-    warnings.push({ service: 'geocoding', code: geocodeError.code });
+    warnings.push({ service: 'geocoding', code: geocodeError.code, naverErrorCode: geocodeError.naverErrorCode });
   }
 
   return NextResponse.json({

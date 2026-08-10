@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
         service: 'localSearch',
         configured: false,
         ok: false,
-        status: null,
+        httpStatus: null,
         code: 'NOT_CONFIGURED',
       });
     }
@@ -48,21 +48,32 @@ export async function GET(request: NextRequest) {
         if (res.status === 403) code = 'FORBIDDEN';
         if (res.status === 429) code = 'RATE_LIMITED';
 
+        let naverErrorCode = 'UNKNOWN';
+        try {
+          const errJson = await res.json();
+          naverErrorCode = String(errJson.errorCode || errJson.code || 'UNKNOWN');
+        } catch {
+          // ignore
+        }
+
         return NextResponse.json({
           service: 'localSearch',
           configured: true,
           ok: false,
-          status: res.status,
+          httpStatus: res.status,
           code,
+          naverErrorCode,
         });
       }
 
+      const data = await res.json();
       return NextResponse.json({
         service: 'localSearch',
         configured: true,
         ok: true,
-        status: 200,
+        httpStatus: 200,
         code: 'OK',
+        resultCount: Array.isArray(data.items) ? data.items.length : 0,
       });
     } catch (err: unknown) {
       console.error('[debug:localSearch] Error:', err);
@@ -70,7 +81,7 @@ export async function GET(request: NextRequest) {
         service: 'localSearch',
         configured: true,
         ok: false,
-        status: 500,
+        httpStatus: 500,
         code: 'UPSTREAM_ERROR',
       });
     }
@@ -86,7 +97,7 @@ export async function GET(request: NextRequest) {
         service: 'geocoding',
         configured: false,
         ok: false,
-        status: null,
+        httpStatus: null,
         code: 'NOT_CONFIGURED',
       });
     }
@@ -109,21 +120,32 @@ export async function GET(request: NextRequest) {
         if (res.status === 403) code = 'FORBIDDEN';
         if (res.status === 429) code = 'RATE_LIMITED';
 
+        let naverErrorCode = 'UNKNOWN';
+        try {
+          const errJson = await res.json();
+          naverErrorCode = String(errJson.error?.errorCode || errJson.errorCode || errJson.code || 'UNKNOWN');
+        } catch {
+          // ignore
+        }
+
         return NextResponse.json({
           service: 'geocoding',
           configured: true,
           ok: false,
-          status: res.status,
+          httpStatus: res.status,
           code,
+          naverErrorCode,
         });
       }
 
+      const data = await res.json();
       return NextResponse.json({
         service: 'geocoding',
         configured: true,
         ok: true,
-        status: 200,
+        httpStatus: 200,
         code: 'OK',
+        resultCount: Array.isArray(data.addresses) ? data.addresses.length : 0,
       });
     } catch (err: unknown) {
       console.error('[debug:geocoding] Error:', err);
@@ -131,7 +153,7 @@ export async function GET(request: NextRequest) {
         service: 'geocoding',
         configured: true,
         ok: false,
-        status: 500,
+        httpStatus: 500,
         code: 'UPSTREAM_ERROR',
       });
     }
