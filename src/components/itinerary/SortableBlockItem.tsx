@@ -61,7 +61,7 @@ export default function SortableBlockItem({
         </div>
 
         {/* Place Info */}
-        <div className="flex-1 min-w-0 pr-6">
+        <div className="flex-1 min-w-0 pr-2">
           <div className="flex items-center gap-1.5 flex-wrap">
             <h4 className="text-xs font-bold text-slate-100 truncate">
               {block.place.title}
@@ -78,27 +78,14 @@ export default function SortableBlockItem({
           </p>
         </div>
 
-        {/* Top-Right Hover Delete Button (X) */}
+        {/* Single Delete Button (X) - Responsive for desktop hover & mobile touch */}
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onRemove(block.id);
           }}
-          className="absolute top-2 right-2 p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg opacity-0 group-hover/card:opacity-100 md:opacity-0 focus:opacity-100 transition-all"
-          title="장소 제거"
-        >
-          <X className="w-4 h-4" />
-        </button>
-
-        {/* Always visible X button on mobile touch screens */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(block.id);
-          }}
-          className="md:hidden p-1 text-slate-400 hover:text-rose-400 rounded-lg shrink-0"
+          className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all shrink-0 opacity-80 md:opacity-0 group-hover/card:opacity-100 focus:opacity-100"
           title="장소 제거"
         >
           <X className="w-4 h-4" />
