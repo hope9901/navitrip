@@ -97,15 +97,18 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
       getMapView: () => {
         if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return null;
         try {
-          const center = mapInstance.current.getCenter();
+          const center = mapInstance.current.getCenter() as naver.maps.LatLng;
           const zoom = mapInstance.current.getZoom();
           const bounds = mapInstance.current.getBounds() as naver.maps.LatLngBounds;
+
+          const centerLat = typeof center.lat === 'function' ? center.lat() : Number((center as unknown as { y: number }).y);
+          const centerLng = typeof center.lng === 'function' ? center.lng() : Number((center as unknown as { x: number }).x);
 
           if (bounds && typeof bounds.getNE === 'function') {
             const ne = bounds.getNE();
             const sw = bounds.getSW();
             return {
-              center: { lat: center.lat(), lng: center.lng() },
+              center: { lat: centerLat, lng: centerLng },
               zoom,
               bounds: {
                 north: ne.lat(),
@@ -117,7 +120,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
           }
 
           return {
-            center: { lat: center.lat(), lng: center.lng() },
+            center: { lat: centerLat, lng: centerLng },
             zoom,
           };
         } catch (err) {
