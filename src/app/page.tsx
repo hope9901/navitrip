@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore, useCallback } from 'react';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import NaverMap, { NaverMapRefHandle } from '@/components/map/NaverMap';
-import MobileBottomSheet from '@/components/itinerary/MobileBottomSheet';
+import Toast from '@/components/common/Toast';
+import MobileBottomSheet, { MobilePanelTab, MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
 import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
 import { createRouteSignature } from '@/lib/routeSignature';
@@ -48,6 +49,11 @@ export default function HomePage() {
   const [routeErrorMessage, setRouteErrorMessage] = useState<string | null>(null);
   const [isRefreshingRoute, setIsRefreshingRoute] = useState<boolean>(false);
   const [refreshCooldownSeconds, setRefreshCooldownSeconds] = useState<number>(0);
+
+  const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>('search');
+  const [mobileSheetState, setMobileSheetState] = useState<MobileSheetState>('half');
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -279,6 +285,7 @@ export default function HomePage() {
 
   const handleSelectSearchPlace = (place: Place) => {
     setSelectedPlace(place);
+    setSelectedSearchPlace(place);
     setSelectedBlockId(null);
     setFocusRequest({
       requestId: Date.now(),
@@ -289,6 +296,31 @@ export default function HomePage() {
       address: place.roadAddress || place.address,
       source: 'search',
     });
+  };
+
+  const handleAddPlaceFromSearch = (place: Place) => {
+    setDays((prevDays) => {
+      const newDays = [...prevDays];
+      const currentDay = newDays[activeDayIndex] || { dayIndex: activeDayIndex, blocks: [] };
+      const existingBlocks = currentDay.blocks || [];
+
+      const isDuplicate = existingBlocks.some((b) => b.place.id === place.id);
+      if (isDuplicate) return prevDays;
+
+      const newBlock: ItineraryBlock = {
+        id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        place,
+        dayIndex: activeDayIndex,
+      };
+
+      newDays[activeDayIndex] = {
+        ...currentDay,
+        blocks: [...existingBlocks, newBlock],
+      };
+      return newDays;
+    });
+
+    setToastMessage(`Day ${activeDayIndex + 1} 일정에 '${place.title}' 장소를 추가했습니다.`);
   };
 
   const handleActiveDayChange = (idx: number) => {
@@ -394,6 +426,9 @@ export default function HomePage() {
         />
       </main>
 
+      {/* Toast Notification */}
+      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+
       {/* Mobile Drawer */}
       <div className="md:hidden">
         <MobileBottomSheet
@@ -415,6 +450,13 @@ export default function HomePage() {
           onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
           onRequestMapView={() => mapRef.current?.getMapView() || null}
           onSelectSearchPlace={handleSelectSearchPlace}
+          selectedSearchPlace={selectedSearchPlace}
+          onClearSelectedSearchPlace={() => setSelectedSearchPlace(null)}
+          onAddPlaceFromSearch={handleAddPlaceFromSearch}
+          mobilePanelTab={mobilePanelTab}
+          setMobilePanelTab={setMobilePanelTab}
+          mobileSheetState={mobileSheetState}
+          setMobileSheetState={setMobileSheetState}
         />
       </div>
 

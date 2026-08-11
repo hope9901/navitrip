@@ -66,6 +66,7 @@ interface ItinerarySidebarProps {
   onNewPlan?: () => void;
   onDeleteCurrentActivePlan?: () => void;
   onRequestMapView?: () => SavedMapView | null;
+  onSelectSearchPlace?: (place: Place) => void;
 }
 
 const emptySubscribe = () => () => {};
@@ -95,6 +96,7 @@ export default function ItinerarySidebar({
   onNewPlan,
   onDeleteCurrentActivePlan,
   onRequestMapView,
+  onSelectSearchPlace,
 }: ItinerarySidebarProps) {
   const isMounted = useIsMounted();
   const titleInputId = useId();
@@ -614,9 +616,8 @@ export default function ItinerarySidebar({
       <div className="shrink-0">
         <PlaceSearchCard
           onAddPlace={handleAddPlace}
-          onSelectPlace={(p) => {
-            onSelectBlock({ id: '', place: p, dayIndex: activeDayIndex });
-          }}
+          onSelectPlace={onSelectSearchPlace}
+          addedPlaceIds={blocks.map((b) => b.place.id)}
         />
       </div>
 
