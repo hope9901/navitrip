@@ -139,3 +139,25 @@
 - **카메라 제어**: 우선순위 1(선택 블록 panTo), 2(전체 보기 버튼), 3(일정/날짜 변경 fitBounds 1회) 분리 구축. `selectedBlockId` + `focusRequestId`로 동일 블록 재클릭 포커스 구현. NaverMap 1km 미만 거리 표시 버그(`durationSeconds` ➔ `distanceMeter`) 수정.
 - **보안 토큰 시스템**: 일정 저장 시 32자리 `manageToken` 생성, client localStorage에 원문 저장, Supabase에는 `token_hash` (SHA-256) 저장. `/api/plans/[id]` DELETE/PATCH 검증 추가. 모달 삭제 UI(확인창, 로딩 상태, 삭제 후 활성 일정 초기화) 구현.
 - **공유 일정 복사 저장**: 공유받은 사용자 저장 시 입력한 제목 그대로 새 복사본 생성 후 `router.replace('/plan/[newId]')`로 상태 전환하여 중복 생성 방지.
+
+---
+
+## 이슈 19: 공유 시점 뷰포트(mapView), 자동차 이동 거리/시간 문구 및 합산 보완, 포커스 흐름 구조화 및 네이버 상세보기 링크 개편
+
+### 1. 지적 및 문제점
+- **지적 내용**:
+  1. 공유 링크 최초 접속 시 서울 기본 화면이 표시되고 전체 보기/공유 시의 실제 카메라 위치가 반영되지 않는 현상.
+  2. 이동 거리/시간 문구가 "총 자동차 이동 거리/시간"으로 표기되고 직선 거리 fallback 구간까지 이동 계산에 합산되는 문제.
+  3. 장소 카드/마커 클릭 시 첫 클릭부터 올바른 좌표로 이동하지 않고 엉뚱한 위치로 튀던 버그.
+  4. 네이버 장소/주소 검색 결과 패널에서 상세정보 새 탭 연결 링크 누락.
+
+### 2. 원인 분석 (Root Cause)
+- `PlaceSearchCard`에서 검색 완료 직후 클릭하지 않은 1번 결과를 자동으로 `onSelectPlace`로 호출하여 카메라 포커스 state를 오염시킴.
+- `NaverMap` 내에서 렌더링 시점의 stale state를 읽어 좌표를 이동시킴.
+- 공유 저장 시 `NaverMap`의 실제 카메라 center, zoom, bounds를 추출하여 DB에 저장하는 뷰포트 영속성 필드(`mapView`) 부재.
+
+### 3. 해결 대책 (Fix)
+- **`mapView` 영속성**: `NaverMap` ref의 `getMapView()`로 공유/저장 시점의 center, zoom, bounds를 `PlanData.mapView`에 보존하고, 공유 페이지 최초 진입 시 **정확히 1회** 보존된 뷰포트를 복원하도록 구현.
+- **이동 거리/시간 문구 & 합산**: "예상 자동차 이동 거리/시간"으로 문구 수정 및 `source === 'naver'` 인 실제 운전 구간만 합산 (실패 시 *"자동차 이동 경로를 계산할 수 없습니다."* 안내 및 각주 추가).
+- **통합 포커스 흐름 (`MapFocusRequest`)**: 마커/블록/검색결과 클릭 시 인자로 전달받은 number 좌표로 `panTo` (zoom 15) 및 인포윈도우를 직접 활성화하고, 검색 완료 시의 자동 포커스 호출을 원천 차단.
+- **네이버 지도 상세보기 링크**: 공통 URL 생성기 `getNaverMapUrl` 신설하여 마커 인포윈도우, 사이드바 일정 블록, 검색 결과 카드 3곳 모두에 **[네이버 지도 상세보기 ↗]** (`target="_blank" rel="noopener noreferrer"`) 제공.
