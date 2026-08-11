@@ -88,3 +88,32 @@
 - `UserNameModal`을 신설하여 초기 접속 시 작성자 이름(닉네임) 입력 및 변경 기능 구축.
 - `listSavedPlansFromDB(userName)`으로 현재 접속한 작성자의 저장 일정만 격리 조회.
 - 타인 작성 일정을 편집 및 저장 시 `순천만 힐링 여행 (김철수 편집본)` 형태로 신규 고유 `planId`를 할당하여 버전 분리 저장.
+
+---
+
+## 이슈 16: Vercel 배포 환경과 Localhost 간 자동차 경로 안내(`directions`) 차이 및 Vercel 환경 변수 바인딩 누락 문제
+
+### 1. 지적 및 문제점
+- **지적 내용**:
+  1. 로컬 환경(`localhost`)에서는 정상 작동하던 자동차 실제 이동 경로(Driving Polyline & 소요시간) 안내가 Vercel 배포 환경에서는 적용되지 않고 직선으로 렌더링되는 문제 발생.
+
+### 2. 원인 분석
+- `src/app/api/directions/route.ts` 등 서버사이드 API 라우트에서 환경 변수 조회 시 `process.env.NAVER_MAP_CLIENT_ID` 단일 키 이름만 참조하고 있었음.
+- Vercel 대시보드 환경 변수에 클라이언트 키 명칭인 `NEXT_PUBLIC_NAVER_MAP_CLIENT_ID` 및 `NEXT_PUBLIC_NAVER_MAP_CLIENT_SECRET`로 설정되어 있었을 경우, 서버 라우트에서 `ncpKeyId`가 `undefined`로 평가되어 직선 거리 Fallback 연산으로 이탈함.
+
+### 3. 해결 대책
+- `src/app/api/directions/route.ts` 및 `src/app/api/search/route.ts` 등 모든 API 라우트에서 `process.env.NAVER_MAP_CLIENT_ID || process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID` 및 `NAVER_SEARCH_CLIENT_ID` 듀얼 룩업 구조로 변경하여 Vercel 및 로컬 환경 변수 설정 형태와 무관하게 100% 정상 발급/인증되도록 보완.
+
+---
+
+## 이슈 17: 좌측 일차 장소 블록 클릭 시 지도가 잘못된 좌표(Null Island 등)로 이동하는 문제
+
+### 1. 지적 및 문제점
+- **지적 내용**:
+  1. 일정 사이드바의 장소 블록 클릭 시 지도가 선택한 장소의 위치로 이동하지 않고 비정상적인 위치로 지도가 이동하는 현상 발생.
+
+### 2. 원인 분석
+- 좌표 파싱 과정 중 비정상 또는 유효 범위를 벗어난 값이 포함된 상태에서 NaverMap의 `selectedPlace` `panTo` 카메라 이동 효과가 유효성 검사 없이 실행되었음.
+
+### 3. 해결 대책
+- `NaverMap.tsx` 내 `selectedPlace` 카메라 이동(`panTo`) 실행 전 대한민국 위경도 유효 범위(`lat: 33 ~ 39`, `lng: 124 ~ 132`) 및 `Number.isFinite()` 검증 로직을 엄격하게 적용하여 0 또는 비정상 좌표로 지도가 튀는 버그를 원천 차단.
