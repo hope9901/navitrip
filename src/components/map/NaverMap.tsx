@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { Place, ItineraryBlock, RouteSegment, SavedMapView, MapFocusRequest } from '@/types/itinerary';
-import { getNaverMapUrl } from '@/lib/naverMapUrl';
+import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
 import { Navigation, AlertTriangle, Maximize2, Info } from 'lucide-react';
 
 export interface NaverMapRefHandle {
@@ -45,7 +45,8 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
   const polylinesRef = useRef<naver.maps.Polyline[]>([]);
   const infoWindowRef = useRef<naver.maps.InfoWindow | null>(null);
   const pendingFocusRequestRef = useRef<MapFocusRequest | null>(null);
-  const hasAppliedInitialViewRef = useRef<boolean>(false);
+  const blocksRef = useRef<ItineraryBlock[]>(blocks);
+  blocksRef.current = blocks;
 
   const [isScriptLoaded, setIsScriptLoaded] = useState(() => {
     if (typeof window !== 'undefined' && window.naver && window.naver.maps) {
@@ -60,7 +61,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
   const fitAllBounds = useCallback(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
 
-    const validBlocks = blocks.filter((b) => {
+    const validBlocks = blocksRef.current.filter((b) => {
       const lat = Number(b.place.lat);
       const lng = Number(b.place.lng);
       return Number.isFinite(lat) && lat >= 33 && lat <= 39 && Number.isFinite(lng) && lng >= 124 && lng <= 132;
@@ -88,7 +89,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
       bottom: 60,
       left: 60,
     });
-  }, [blocks]);
+  }, []);
 
   // Expose getMapView and fitAllBounds to parent via Ref
   useImperativeHandle(
@@ -208,19 +209,17 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
               mapInstance.current.setZoom(view.zoom);
             }
           }
-          hasAppliedInitialViewRef.current = true;
           return;
         }
       }
 
       // Fallback: fitAllBounds
       fitAllBounds();
-      hasAppliedInitialViewRef.current = true;
     },
     [fitAllBounds]
   );
 
-  // Execute Focus Request helper
+  // Execute Focus Request helper - STABLE REFERENCE (uses blocksRef to prevent marker effect re-trigger)
   const executeFocusRequest = useCallback(
     (req: MapFocusRequest) => {
       if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
@@ -240,11 +239,14 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
       }
 
       const targetPos = new naver.maps.LatLng(lat, lng);
-      mapInstance.current.panTo(targetPos, {});
-      mapInstance.current.setZoom(15, true);
+
+      // Use setCenter + setZoom directly to guarantee instant center positioning without panTo animation collisions
+      mapInstance.current.setCenter(targetPos);
+      mapInstance.current.setZoom(15);
 
       // Open InfoWindow if matching marker exists or construct temporary InfoWindow
-      const matchingBlock = blocks.find(
+      const currentBlocks = blocksRef.current;
+      const matchingBlock = currentBlocks.find(
         (b) => b.id === req.blockId || b.place.id === req.placeId || (Math.abs(b.place.lat - lat) < 0.0001 && Math.abs(b.place.lng - lng) < 0.0001)
       );
 
@@ -257,7 +259,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
             lng,
           };
 
-      const naverUrl = getNaverMapUrl(placeData);
+      const naverSearchUrl = getNaverMapSearchUrl(placeData);
 
       const infoContent = `
         <div style="
@@ -286,9 +288,9 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
               : ''
           }
           ${
-            naverUrl
+            naverSearchUrl
               ? `<div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-                  <a href="${naverUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="
+                  <a href="${naverSearchUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="
                     display: inline-flex;
                     align-items: center;
                     gap: 4px;
@@ -297,7 +299,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
                     font-weight: 600;
                     text-decoration: none;
                   ">
-                    네이버 지도 상세보기 ↗
+                    네이버에서 사진·리뷰 보기 ↗
                   </a>
                 </div>`
               : ''
@@ -316,7 +318,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         }
       }
     },
-    [blocks]
+    []
   );
 
   // Initialize Map Instance
@@ -365,7 +367,23 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     }
   }, [isScriptLoaded, initialMapView, applyInitialViewport, executeFocusRequest, onMapReadyChange]);
 
-  // Render Markers & Polylines (DOES NOT call fitBounds)
+  // ResizeObserver for Map DOM element resizing (sidebar toggle)
+  useEffect(() => {
+    if (!mapElement.current) return;
+    const observer = new ResizeObserver(() => {
+      if (mapInstance.current && typeof naver !== 'undefined' && naver.maps) {
+        try {
+          naver.maps.Event.trigger(mapInstance.current, 'resize');
+        } catch {
+          // ignore
+        }
+      }
+    });
+    observer.observe(mapElement.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Render Markers & Polylines (DOES NOT call fitBounds or camera moves)
   useEffect(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
 
@@ -463,7 +481,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     }
   }, [dayChangeKey, fitAllBounds]);
 
-  // Priority 1: Focus Request (triggers panTo at zoom 15 + infoWindow)
+  // Priority 1: Focus Request (triggers setCenter at zoom 15 + infoWindow)
   useEffect(() => {
     if (!focusRequest) return;
 
@@ -545,7 +563,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         </div>
       )}
 
-      {/* Route Distance & Duration Summary Badge (Wording & Calculation updated per Section 2) */}
+      {/* Route Distance & Duration Summary Badge */}
       {blocks.length > 1 && !mapError && (
         <div className="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white px-4 py-3 rounded-2xl shadow-xl z-10 flex flex-col gap-1.5 max-w-xs">
           <div className="flex items-center gap-3">

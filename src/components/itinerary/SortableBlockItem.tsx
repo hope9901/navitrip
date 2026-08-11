@@ -4,7 +4,7 @@ import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ItineraryBlock, RouteSegment } from '@/types/itinerary';
-import { getNaverMapUrl } from '@/lib/naverMapUrl';
+import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
 import { GripVertical, X, MapPin, Car, ExternalLink } from 'lucide-react';
 
 interface SortableBlockItemProps {
@@ -38,7 +38,7 @@ export default function SortableBlockItem({
     zIndex: isDragging ? 50 : 1,
   };
 
-  const naverUrl = getNaverMapUrl(block.place);
+  const naverSearchUrl = getNaverMapSearchUrl(block.place);
 
   return (
     <div ref={setNodeRef} style={style} className="relative flex flex-col w-full group">
@@ -81,15 +81,15 @@ export default function SortableBlockItem({
           </p>
         </div>
 
-        {/* Action Buttons: Naver Detail Link & Delete X */}
+        {/* Action Buttons: Naver Search Link & Delete X */}
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-          {naverUrl && (
+          {naverSearchUrl && (
             <a
-              href={naverUrl}
+              href={naverSearchUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="p-1.5 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-all"
-              title="네이버 지도 상세보기 새 탭 열기"
+              title="네이버 지도 사진·리뷰 보기 (새 탭)"
             >
               <ExternalLink className="w-3.5 h-3.5" />
             </a>

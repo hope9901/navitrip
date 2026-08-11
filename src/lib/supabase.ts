@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { PlanData } from '@/types/itinerary';
+import { PlanData, DayItinerary, ItineraryBlock } from '@/types/itinerary';
+import { normalizePlaceLinks } from '@/lib/naverMapUrl';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -17,6 +18,20 @@ export interface SavedPlanSummary {
   updatedAt?: string;
   placeCount: number;
   hasManageToken?: boolean;
+}
+
+// Helper to normalize all places inside a plan's days
+function sanitizePlanPlaces(days: DayItinerary[]): DayItinerary[] {
+  if (!Array.isArray(days)) return [];
+  return days.map((day) => ({
+    ...day,
+    blocks: Array.isArray(day.blocks)
+      ? day.blocks.map((block: ItineraryBlock) => ({
+          ...block,
+          place: normalizePlaceLinks(block.place),
+        }))
+      : [],
+  }));
 }
 
 // Generate random 32-character hex token
@@ -59,6 +74,7 @@ export function removeStoredManageToken(planId: string): void {
 export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manageToken: string; isLocalFallback: boolean }> {
   const planId = plan.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const authorName = plan.authorName || '익명';
+  const sanitizedDays = sanitizePlanPlaces(plan.days);
 
   let manageToken = plan.manageToken || getStoredManageToken(planId);
   if (!manageToken) {
@@ -75,6 +91,7 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
     authorName,
     manageToken,
     mapView: plan.mapView,
+    days: sanitizedDays,
     updatedAt: new Date().toISOString(),
   };
 
@@ -88,7 +105,7 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
           author_name: authorName,
           token_hash: tokenHash,
           map_view: plan.mapView,
-          days: plan.days,
+          days: sanitizedDays,
           created_at: plan.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -96,7 +113,6 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
         .single();
 
       if (error) {
-        // If map_view or token_hash column doesn't exist in Supabase schema yet, retry upserting without it
         if (
           error.code === '42703' ||
           error.message?.includes('map_view') ||
@@ -109,7 +125,7 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
               id: planId,
               title: plan.title,
               author_name: authorName,
-              days: plan.days,
+              days: sanitizedDays,
               created_at: plan.createdAt || new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
@@ -153,7 +169,7 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
           authorName: data.author_name || '익명',
           manageToken: localToken || undefined,
           mapView: data.map_view || data.mapView || undefined,
-          days: data.days,
+          days: sanitizePlanPlaces(data.days),
           createdAt: data.created_at,
           updatedAt: data.updated_at,
         };
@@ -173,6 +189,7 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
           ...parsed,
           manageToken: localToken || parsed.manageToken,
           mapView: parsed.mapView || parsed.map_view || undefined,
+          days: sanitizePlanPlaces(parsed.days),
         };
       } catch (e) {
         console.error('Error parsing local plan:', e);
@@ -187,7 +204,6 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
 export async function deletePlanFromDB(planId: string, authorName?: string): Promise<{ ok: boolean; message?: string }> {
   const manageToken = getStoredManageToken(planId) || '';
 
-  // Call Server Route Handler to verify token and delete securely
   try {
     const res = await fetch(`/api/plans/${planId}`, {
       method: 'DELETE',

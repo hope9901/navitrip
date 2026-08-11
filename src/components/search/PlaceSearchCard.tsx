@@ -2,7 +2,7 @@
 
 import React, { useState, useId } from 'react';
 import { Place } from '@/types/itinerary';
-import { getNaverMapUrl } from '@/lib/naverMapUrl';
+import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
 import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, AlertCircle, X, Navigation } from 'lucide-react';
 
 interface PlaceSearchCardProps {
@@ -85,8 +85,21 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
       }
 
       if (data.items && Array.isArray(data.items)) {
-        setResults(data.items);
-        // Note: Do NOT automatically trigger onSelectPlace on search completion to prevent map camera jumps!
+        // Strip HTML and compute naverMapUrl for search items
+        const sanitizedItems: Place[] = data.items.map((item: Place) => {
+          const searchUrl = getNaverMapSearchUrl(item) || undefined;
+          return {
+            ...item,
+            title: (item.title || '').replace(/<[^>]*>?/gm, '').trim(),
+            roadAddress: (item.roadAddress || '').replace(/<[^>]*>?/gm, '').trim(),
+            address: (item.address || '').replace(/<[^>]*>?/gm, '').trim(),
+            naverMapUrl: searchUrl,
+            // Do NOT use item.link as naverPlaceUrl to avoid opening external sites
+            link: undefined,
+            naverPlaceUrl: undefined,
+          };
+        });
+        setResults(sanitizedItems);
       } else {
         setResults([]);
       }
@@ -176,7 +189,7 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
           ) : (
             results.map((place) => {
               const isAddressType = place.type === 'address';
-              const naverUrl = getNaverMapUrl(place);
+              const naverSearchUrl = getNaverMapSearchUrl(place);
 
               return (
                 <div
@@ -247,15 +260,15 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
                         <span>지도에서 보기</span>
                       </button>
 
-                      {naverUrl && (
+                      {naverSearchUrl && (
                         <a
-                          href={naverUrl}
+                          href={naverSearchUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-400 hover:text-sky-300 hover:underline transition-colors"
-                          title="네이버 지도 상세 페이지 새 탭 열기"
+                          title="네이버 지도 사진 및 리뷰 검색 새 탭 열기"
                         >
-                          <span>네이버 상세보기</span>
+                          <span>네이버에서 사진·리뷰 보기</span>
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       )}
