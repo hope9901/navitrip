@@ -43,8 +43,8 @@ export default function UserNameModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
-      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-sm p-6 flex flex-col gap-5 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn safe-pt safe-pb">
+      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-sm p-6 flex flex-col gap-5 shadow-2xl relative max-h-[calc(100dvh-2rem)] overflow-y-auto custom-scrollbar">
         {/* Header Icon */}
         <div className="flex flex-col items-center text-center gap-2">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
@@ -62,9 +62,10 @@ export default function UserNameModal({
         {/* Input Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <label htmlFor={nameInputId} className="text-[11px] font-semibold text-slate-300">
+            <label htmlFor={nameInputId} className="text-xs md:text-[11px] font-semibold text-slate-300">
               사용자(작성자) 이름 입력
             </label>
+            {/* Minimum 16px font size on mobile (text-base) to prevent iOS Safari auto-zoom */}
             <input
               id={nameInputId}
               name="userName"
@@ -77,7 +78,7 @@ export default function UserNameModal({
               placeholder="예: 홍길동, 김철수"
               autoFocus
               maxLength={20}
-              className="w-full px-3.5 py-2.5 bg-slate-950/90 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-inner"
+              className="w-full px-3.5 py-3 md:py-2.5 bg-slate-950/90 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 text-base md:text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-inner min-h-[44px]"
             />
             {error && <span className="text-[11px] text-rose-400 font-medium">{error}</span>}
           </div>
@@ -87,23 +88,23 @@ export default function UserNameModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition-all"
+                className="flex-1 py-3 md:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition-all min-h-[44px] flex items-center justify-center active:scale-95"
               >
                 취소
               </button>
             )}
             <button
               type="submit"
-              className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md active:scale-95"
+              className="flex-1 py-3 md:py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md min-h-[44px] active:scale-95"
             >
               <span>{isChangeMode ? '변경하기' : '시작하기'}</span>
-              {isChangeMode ? <Check className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
+              {isChangeMode ? <Check className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
             </button>
           </div>
         </form>
 
         <div className="flex items-center justify-center gap-1 text-[10px] text-slate-500">
-          <Sparkles className="w-3 h-3 text-emerald-500" />
+          <Sparkles className="w-3 h-3 text-emerald-500 shrink-0" />
           <span>공유받은 링크도 본인 이름으로 편집 및 저장할 수 있습니다.</span>
         </div>
       </div>

@@ -399,7 +399,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans antialiased">
+    <div className="flex flex-col md:flex-row h-[100dvh] min-h-[100svh] w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans antialiased">
       {/* Desktop Left Sidebar Panel */}
       <aside className="hidden md:flex w-[420px] lg:w-[460px] flex-col border-r border-slate-800/80 bg-slate-950 z-20 shrink-0 shadow-2xl">
         <ItinerarySidebar

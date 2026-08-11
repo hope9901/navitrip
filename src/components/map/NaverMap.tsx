@@ -252,9 +252,13 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         return;
       }
 
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+      // On mobile, offset center latitude down by ~0.002 degrees so marker is in visible upper viewport above bottom sheet
+      const centerLat = isMobile ? lat - 0.002 : lat;
+      const centerPos = new naver.maps.LatLng(centerLat, lng);
       const targetPos = new naver.maps.LatLng(lat, lng);
 
-      mapInstance.current.setCenter(targetPos);
+      mapInstance.current.setCenter(centerPos);
       mapInstance.current.setZoom(15);
 
       const currentBlocks = blocksRef.current;

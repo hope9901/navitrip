@@ -198,3 +198,27 @@
 - **저장/공유 일정 경로 보존 (`savedRoute`)**: `DayItinerary` 내 `savedRoute` 요약을 보존하여 저장/공유 일정 재오픈 시 **외부 API 호출 0회** (`source: "saved"`).
 - **800ms 디바운스 & activeDay 전용 계산**: 현재 활성화된 Day만 연산하며, 연속 장소 변경 시 800ms 디바운스 및 `AbortController` 적용.
 - **수동 "예상 시간 새로고침" 버튼**: `NaverMap.tsx`에 새로고침 버튼 및 상태 라벨(`저장된 예상 경로`, `최신 예상 경로`, `서버 캐시 예상 경로`, `이전 계산 결과`, `마지막 계산: HH:mm`) 제공. 60초 쿨다운 적용.
+
+---
+
+## 이슈 23: 모바일 Chrome 상단/하단 잘림 수정, Safe Area 적용, iOS 16px 자동확대 차단 및 반응형 터치 UX 종합 개편
+
+### 1. 지적 및 문제점
+- **지적 내용**:
+  1. 모바일 Chrome 탭 그룹 및 주소창이 노출된 상태에서 100vh 계산 오차로 상단 헤더 또는 하단 액션 버튼이 가려지거나 잘리는 현상.
+  2. iPhone/Android 노치 및 Safe Area 뷰포트 처리 미비.
+  3. iOS Safari에서 입력창 클릭 시 화면 자동 확대(Zoom-in) 현상.
+  4. 데스크톱 레이아웃 훼손 가능성 및 모바일 하단 패널(Bottom Sheet) 가림 영역 처리 미비.
+
+### 2. 원인 분석 (Root Cause)
+- `layout.tsx` 내 `viewportFit=cover` 명시 미비.
+- 최상위 컨테이너 높이가 `h-screen` (100vh)으로 지정되어 주소창 동적 높이를 계산하지 못함.
+- `<input>` 모바일 폰트 크기가 12~14px로 지정되어 iOS Safari 자동 확대 유발.
+
+### 3. 해결 대책 (Fix)
+- **`viewportFit=cover` & `100dvh`**: `layout.tsx`에 Next.js `viewport` 설정을 추가하고 최상위 컨테이너 높이를 **`h-[100dvh] min-h-[100svh]`**로 교체.
+- **Safe Area Inset**: `globals.css`에 `.safe-pt`, `.safe-pb` 작성하여 모바일 헤더 및 하단 바텀시트에 적용 (데스크톱 0px 유지).
+- **데스크톱 레이아웃 100% 보존**: 데스크톱(`md: flex`, `lg: flex`) 사이드바, 지도, 검색창 및 버튼 배치를 1px의 오차 없이 그대로 유지.
+- **iOS Safari 자동 확대 차단**: 모든 `<input>` 폰트 크기를 모바일 최소 **16px (`text-base md:text-xs`)**로 설정.
+- **모바일 지도 오프셋 이동**: 모바일 Viewport에서 장소 선택 시 마커가 바텀시트에 가려지지 않도록 위도 오프셋(`lat - 0.002`) 중심 연산 적용.
+- **터치 영역 & API 0회 재호출**: 버튼 터치 영역 최소 44x44px 확보, 모바일 화면 회전/드래그/뷰포트 변경 시 외부 API 호출 0회 유지.

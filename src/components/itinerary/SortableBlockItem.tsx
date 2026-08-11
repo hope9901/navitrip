@@ -45,15 +45,15 @@ export default function SortableBlockItem({
       {/* Block Card */}
       <div
         onClick={() => onSelect(block)}
-        className="relative flex items-center gap-2 p-3 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-700/60 rounded-xl transition-all shadow-sm hover:shadow-md cursor-pointer overflow-hidden group/card"
+        className="relative flex items-center gap-2 p-3 bg-slate-900/90 hover:bg-slate-800/90 border border-slate-700/60 rounded-xl transition-all shadow-sm hover:shadow-md cursor-pointer overflow-hidden group/card min-h-[52px]"
       >
-        {/* Drag Handle */}
+        {/* Drag Handle - Min 44px touch target on mobile */}
         <button
           {...attributes}
           {...listeners}
           type="button"
           aria-label="순서 변경 드래그"
-          className="p-1 text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0"
+          className="p-2 text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0 min-h-[44px] min-w-[36px] flex items-center justify-center"
         >
           <GripVertical className="w-4 h-4" />
         </button>
@@ -64,7 +64,7 @@ export default function SortableBlockItem({
         </div>
 
         {/* Place Info */}
-        <div className="flex-1 min-w-0 pr-2">
+        <div className="flex-1 min-w-0 pr-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <h4 className="text-xs font-bold text-slate-100 truncate">
               {block.place.title}
@@ -81,36 +81,36 @@ export default function SortableBlockItem({
           </p>
         </div>
 
-        {/* Action Buttons: Naver Search Link & Delete X */}
+        {/* Action Buttons: Naver Search Link & Delete X (Min 44px touch targets) */}
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           {naverSearchUrl && (
             <a
               href={naverSearchUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1.5 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-all"
+              className="p-2 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-all min-h-[44px] min-w-[44px] flex items-center justify-center"
               title="네이버 지도 사진·리뷰 보기 (새 탭)"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <ExternalLink className="w-4 h-4" />
             </a>
           )}
 
           <button
             type="button"
             onClick={() => onRemove(block.id)}
-            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all opacity-80 md:opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all min-h-[44px] min-w-[44px] flex items-center justify-center opacity-90 md:opacity-0 group-hover/card:opacity-100 focus:opacity-100"
             title="장소 제거"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4.5 h-4.5" />
           </button>
         </div>
       </div>
 
-      {/* Route Badge to Next Place (Driving Distance & Time) */}
+      {/* Route Badge to Next Place */}
       {routeToNext && (
         <div className="flex items-center justify-center my-1.5 relative">
           <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 border-t border-dashed border-slate-700" />
-          <div className="relative z-10 px-2.5 py-0.5 bg-slate-950 border border-emerald-500/30 rounded-full text-[10px] text-emerald-400 font-medium flex items-center gap-1.5 shadow-sm">
+          <div className="relative z-10 px-2.5 py-1 bg-slate-950 border border-emerald-500/30 rounded-full text-[10px] text-emerald-400 font-medium flex items-center gap-1.5 shadow-sm">
             <Car className="w-3 h-3 text-emerald-400" />
             <span>{routeToNext.formattedDuration}</span>
             <span className="text-slate-600">•</span>
