@@ -12,6 +12,9 @@ export interface Place {
   telephone?: string;
   mapx?: string;
   mapy?: string;
+  naverMapUrl?: string;
+  naverPlaceUrl?: string;
+  naverSearchQuery?: string;
 }
 
 export interface ItineraryBlock {
@@ -38,11 +41,37 @@ export interface DayItinerary {
   blocks: ItineraryBlock[];
 }
 
+export type SavedMapView = {
+  center: {
+    lat: number;
+    lng: number;
+  };
+  zoom: number;
+  bounds?: {
+    north: number;
+    east: number;
+    south: number;
+    west: number;
+  };
+};
+
+export type MapFocusRequest = {
+  requestId: number;
+  placeId?: string;
+  blockId?: string;
+  lat: number;
+  lng: number;
+  title?: string;
+  address?: string;
+  source: 'marker' | 'sidebar' | 'search';
+};
+
 export interface PlanData {
   id?: string;
   title: string;
   authorName?: string;
   manageToken?: string;
+  mapView?: SavedMapView;
   days: DayItinerary[];
   createdAt?: string;
   updatedAt?: string;

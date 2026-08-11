@@ -74,6 +74,7 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
     id: planId,
     authorName,
     manageToken,
+    mapView: plan.mapView,
     updatedAt: new Date().toISOString(),
   };
 
@@ -86,6 +87,7 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
           title: plan.title,
           author_name: authorName,
           token_hash: tokenHash,
+          map_view: plan.mapView,
           days: plan.days,
           created_at: plan.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -94,8 +96,13 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
         .single();
 
       if (error) {
-        // If token_hash or author_name column doesn't exist yet in Supabase schema, retry upserting without missing column
-        if (error.code === '42703' || error.message?.includes('token_hash') || error.message?.includes('author_name')) {
+        // If map_view or token_hash column doesn't exist in Supabase schema yet, retry upserting without it
+        if (
+          error.code === '42703' ||
+          error.message?.includes('map_view') ||
+          error.message?.includes('token_hash') ||
+          error.message?.includes('author_name')
+        ) {
           const { data: retryData, error: retryErr } = await supabase
             .from('plans')
             .upsert({
@@ -145,6 +152,7 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
           title: data.title,
           authorName: data.author_name || '익명',
           manageToken: localToken || undefined,
+          mapView: data.map_view || data.mapView || undefined,
           days: data.days,
           createdAt: data.created_at,
           updatedAt: data.updated_at,
@@ -164,6 +172,7 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
         return {
           ...parsed,
           manageToken: localToken || parsed.manageToken,
+          mapView: parsed.mapView || parsed.map_view || undefined,
         };
       } catch (e) {
         console.error('Error parsing local plan:', e);
@@ -193,7 +202,6 @@ export async function deletePlanFromDB(planId: string, authorName?: string): Pro
       throw new Error(data.message || '일정 삭제에 실패했습니다.');
     }
   } catch (err) {
-    // If offline or network error, check if local fallback
     console.error('Server delete route failed:', err);
     if (!isSupabaseConfigured) {
       // Local fallback proceed
@@ -225,7 +233,6 @@ export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<S
         .order('updated_at', { ascending: false })
         .limit(100);
 
-      // If NOT admin, filter strictly by author_name
       if (!isAdmin && targetAuthorName) {
         query = query.eq('author_name', targetAuthorName);
       }
@@ -267,7 +274,6 @@ export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<S
             const parsed = JSON.parse(val);
             const itemAuthor = parsed.authorName || '익명';
 
-            // If NOT admin, strictly require matching authorName
             if (!isAdmin && targetAuthorName && itemAuthor !== targetAuthorName) {
               continue;
             }

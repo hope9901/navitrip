@@ -1,37 +1,51 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Place, ItineraryBlock, RouteSegment } from '@/types/itinerary';
+import React, { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { Place, ItineraryBlock, RouteSegment, SavedMapView, MapFocusRequest } from '@/types/itinerary';
+import { getNaverMapUrl } from '@/lib/naverMapUrl';
 import { Navigation, AlertTriangle, Maximize2, Info } from 'lucide-react';
+
+export interface NaverMapRefHandle {
+  getMapView: () => SavedMapView | null;
+  fitAllBounds: () => void;
+}
 
 interface NaverMapProps {
   blocks: ItineraryBlock[];
   routes: RouteSegment[];
   selectedPlace?: Place | null;
   selectedBlockId?: string | null;
-  focusRequestId?: number;
+  focusRequest?: MapFocusRequest | null;
+  initialMapView?: SavedMapView | null;
   dayChangeKey?: string | number;
   clientId?: string;
   onMarkerClick?: (block: ItineraryBlock) => void;
   routeErrorMessage?: string | null;
+  isMapReady?: boolean;
+  onMapReadyChange?: (ready: boolean) => void;
 }
 
-export default function NaverMap({
-  blocks,
-  routes,
-  selectedPlace,
-  selectedBlockId,
-  focusRequestId,
-  dayChangeKey,
-  clientId,
-  onMarkerClick,
-  routeErrorMessage,
-}: NaverMapProps) {
+const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
+  {
+    blocks,
+    routes,
+    focusRequest,
+    initialMapView,
+    dayChangeKey,
+    clientId,
+    onMarkerClick,
+    routeErrorMessage,
+    onMapReadyChange,
+  },
+  ref
+) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<naver.maps.Map | null>(null);
   const markersRef = useRef<Map<string, naver.maps.Marker>>(new Map());
   const polylinesRef = useRef<naver.maps.Polyline[]>([]);
   const infoWindowRef = useRef<naver.maps.InfoWindow | null>(null);
+  const pendingFocusRequestRef = useRef<MapFocusRequest | null>(null);
+  const hasAppliedInitialViewRef = useRef<boolean>(false);
 
   const [isScriptLoaded, setIsScriptLoaded] = useState(() => {
     if (typeof window !== 'undefined' && window.naver && window.naver.maps) {
@@ -42,7 +56,81 @@ export default function NaverMap({
   const [mapError, setMapError] = useState<string | null>(null);
   const [coordWarning, setCoordWarning] = useState<string | null>(null);
 
-  // Load Naver Map Script dynamically with NEXT_PUBLIC_NAVER_MAP_CLIENT_ID ONLY on client
+  // Fit bounds helper function (Priority 2 & 3)
+  const fitAllBounds = useCallback(() => {
+    if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+
+    const validBlocks = blocks.filter((b) => {
+      const lat = Number(b.place.lat);
+      const lng = Number(b.place.lng);
+      return Number.isFinite(lat) && lat >= 33 && lat <= 39 && Number.isFinite(lng) && lng >= 124 && lng <= 132;
+    });
+
+    if (validBlocks.length === 0) return;
+
+    if (validBlocks.length === 1) {
+      const pos = new naver.maps.LatLng(validBlocks[0].place.lat, validBlocks[0].place.lng);
+      mapInstance.current.setCenter(pos);
+      mapInstance.current.setZoom(15);
+      return;
+    }
+
+    const firstPos = new naver.maps.LatLng(validBlocks[0].place.lat, validBlocks[0].place.lng);
+    const bounds = new naver.maps.LatLngBounds(firstPos, firstPos);
+
+    validBlocks.forEach((b) => {
+      bounds.extend(new naver.maps.LatLng(b.place.lat, b.place.lng));
+    });
+
+    mapInstance.current.fitBounds(bounds, {
+      top: 60,
+      right: 60,
+      bottom: 60,
+      left: 60,
+    });
+  }, [blocks]);
+
+  // Expose getMapView and fitAllBounds to parent via Ref
+  useImperativeHandle(
+    ref,
+    () => ({
+      getMapView: () => {
+        if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return null;
+        try {
+          const center = mapInstance.current.getCenter();
+          const zoom = mapInstance.current.getZoom();
+          const bounds = mapInstance.current.getBounds() as naver.maps.LatLngBounds;
+
+          if (bounds && typeof bounds.getNE === 'function') {
+            const ne = bounds.getNE();
+            const sw = bounds.getSW();
+            return {
+              center: { lat: center.lat(), lng: center.lng() },
+              zoom,
+              bounds: {
+                north: ne.lat(),
+                east: ne.lng(),
+                south: sw.lat(),
+                west: sw.lng(),
+              },
+            };
+          }
+
+          return {
+            center: { lat: center.lat(), lng: center.lng() },
+            zoom,
+          };
+        } catch (err) {
+          console.error('Error getting map view:', err);
+          return null;
+        }
+      },
+      fitAllBounds,
+    }),
+    [fitAllBounds]
+  );
+
+  // Load Naver Map Script dynamically
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -87,6 +175,147 @@ export default function NaverMap({
     };
   }, [clientId]);
 
+  // Apply initial saved mapView or initial bounds
+  const applyInitialViewport = useCallback(
+    (view?: SavedMapView | null) => {
+      if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+
+      if (view && view.center) {
+        const lat = Number(view.center.lat);
+        const lng = Number(view.center.lng);
+        const validLat = Number.isFinite(lat) && lat >= 33 && lat <= 39;
+        const validLng = Number.isFinite(lng) && lng >= 124 && lng <= 132;
+
+        if (validLat && validLng) {
+          if (
+            view.bounds &&
+            Number.isFinite(view.bounds.south) &&
+            Number.isFinite(view.bounds.west) &&
+            Number.isFinite(view.bounds.north) &&
+            Number.isFinite(view.bounds.east)
+          ) {
+            const sw = new naver.maps.LatLng(view.bounds.south, view.bounds.west);
+            const ne = new naver.maps.LatLng(view.bounds.north, view.bounds.east);
+            const bounds = new naver.maps.LatLngBounds(sw, ne);
+            mapInstance.current.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+          } else {
+            const center = new naver.maps.LatLng(lat, lng);
+            mapInstance.current.setCenter(center);
+            if (view.zoom && Number.isFinite(view.zoom)) {
+              mapInstance.current.setZoom(view.zoom);
+            }
+          }
+          hasAppliedInitialViewRef.current = true;
+          return;
+        }
+      }
+
+      // Fallback: fitAllBounds
+      fitAllBounds();
+      hasAppliedInitialViewRef.current = true;
+    },
+    [fitAllBounds]
+  );
+
+  // Execute Focus Request helper
+  const executeFocusRequest = useCallback(
+    (req: MapFocusRequest) => {
+      if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+
+      const lat = Number(req.lat);
+      const lng = Number(req.lng);
+
+      const isValidLat = Number.isFinite(lat) && lat >= 33 && lat <= 39;
+      const isValidLng = Number.isFinite(lng) && lng >= 124 && lng <= 132;
+
+      if (!isValidLat || !isValidLng) {
+        const warningMsg = `'${req.title || '장소'}'의 좌표가 올바르지 않아 지도를 이동할 수 없습니다. (lat: ${lat}, lng: ${lng})`;
+        console.warn('[NaverMap]', warningMsg);
+        setCoordWarning(warningMsg);
+        setTimeout(() => setCoordWarning(null), 4000);
+        return;
+      }
+
+      const targetPos = new naver.maps.LatLng(lat, lng);
+      mapInstance.current.panTo(targetPos, {});
+      mapInstance.current.setZoom(15, true);
+
+      // Open InfoWindow if matching marker exists or construct temporary InfoWindow
+      const matchingBlock = blocks.find(
+        (b) => b.id === req.blockId || b.place.id === req.placeId || (Math.abs(b.place.lat - lat) < 0.0001 && Math.abs(b.place.lng - lng) < 0.0001)
+      );
+
+      const placeData: Partial<Place> = matchingBlock
+        ? matchingBlock.place
+        : {
+            title: req.title || '선택한 장소',
+            address: req.address || '',
+            lat,
+            lng,
+          };
+
+      const naverUrl = getNaverMapUrl(placeData);
+
+      const infoContent = `
+        <div style="
+          padding: 12px 16px;
+          background: rgba(15, 23, 42, 0.95);
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 12px;
+          color: #f8fafc;
+          min-width: 220px;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+          font-family: sans-serif;
+        ">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #ffffff;">${placeData.title}</h4>
+            ${
+              placeData.category && placeData.category !== '주소'
+                ? `<span style="font-size: 10px; background: rgba(51, 65, 85, 0.8); color: #cbd5e1; padding: 2px 6px; border-radius: 4px;">${placeData.category.split('>').pop()?.trim()}</span>`
+                : ''
+            }
+          </div>
+          <p style="margin: 6px 0 0 0; font-size: 12px; color: #94a3b8;">${placeData.roadAddress || placeData.address || ''}</p>
+          ${
+            placeData.telephone
+              ? `<p style="margin: 4px 0 0 0; font-size: 11px; color: #64748b;">📞 ${placeData.telephone}</p>`
+              : ''
+          }
+          ${
+            naverUrl
+              ? `<div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                  <a href="${naverUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    font-size: 11px;
+                    color: #38bdf8;
+                    font-weight: 600;
+                    text-decoration: none;
+                  ">
+                    네이버 지도 상세보기 ↗
+                  </a>
+                </div>`
+              : ''
+          }
+        </div>
+      `;
+
+      if (infoWindowRef.current) {
+        infoWindowRef.current.setContent(infoContent);
+
+        const markerKey = req.blockId || (matchingBlock ? matchingBlock.id : null);
+        if (markerKey && markersRef.current.has(markerKey)) {
+          infoWindowRef.current.open(mapInstance.current!, markersRef.current.get(markerKey)!);
+        } else {
+          infoWindowRef.current.open(mapInstance.current!, targetPos);
+        }
+      }
+    },
+    [blocks]
+  );
+
   // Initialize Map Instance
   useEffect(() => {
     if (!isScriptLoaded || !mapElement.current || mapInstance.current) return;
@@ -111,6 +340,19 @@ export default function NaverMap({
         backgroundColor: 'transparent',
         disableAnchor: false,
       });
+
+      if (onMapReadyChange) {
+        onMapReadyChange(true);
+      }
+
+      // Apply initial view or pending focus request
+      applyInitialViewport(initialMapView);
+
+      if (pendingFocusRequestRef.current) {
+        const req = pendingFocusRequestRef.current;
+        pendingFocusRequestRef.current = null;
+        executeFocusRequest(req);
+      }
     } catch (e: unknown) {
       console.error('Failed to initialize Naver Map:', e);
       const timer = setTimeout(() => {
@@ -118,36 +360,9 @@ export default function NaverMap({
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [isScriptLoaded]);
+  }, [isScriptLoaded, initialMapView, applyInitialViewport, executeFocusRequest, onMapReadyChange]);
 
-  // Fit bounds helper function (Priority 2 & 3)
-  const fitAllBounds = useCallback(() => {
-    if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
-
-    const validBlocks = blocks.filter((b) => {
-      const lat = Number(b.place.lat);
-      const lng = Number(b.place.lng);
-      return Number.isFinite(lat) && lat >= 33 && lat <= 39 && Number.isFinite(lng) && lng >= 124 && lng <= 132;
-    });
-
-    if (validBlocks.length === 0) return;
-
-    const firstPos = new naver.maps.LatLng(validBlocks[0].place.lat, validBlocks[0].place.lng);
-    const bounds = new naver.maps.LatLngBounds(firstPos, firstPos);
-
-    validBlocks.forEach((b) => {
-      bounds.extend(new naver.maps.LatLng(b.place.lat, b.place.lng));
-    });
-
-    mapInstance.current.fitBounds(bounds, {
-      top: 60,
-      right: 60,
-      bottom: 60,
-      left: 60,
-    });
-  }, [blocks]);
-
-  // 1. Render Markers & Polylines (DOES NOT call fitBounds on route updates)
+  // Render Markers & Polylines (DOES NOT call fitBounds)
   useEffect(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
 
@@ -200,37 +415,16 @@ export default function NaverMap({
         naver.maps.Event.addListener(marker, 'click', () => {
           if (onMarkerClick) onMarkerClick(block);
 
-          const infoContent = `
-            <div style="
-              padding: 12px 16px;
-              background: rgba(15, 23, 42, 0.95);
-              backdrop-filter: blur(8px);
-              border: 1px solid rgba(255, 255, 255, 0.15);
-              border-radius: 12px;
-              color: #f8fafc;
-              min-width: 200px;
-              box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
-              font-family: sans-serif;
-            ">
-              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                <span style="
-                  background: #10b981;
-                  color: white;
-                  font-size: 11px;
-                  font-weight: bold;
-                  padding: 2px 6px;
-                  border-radius: 4px;
-                ">#${idx + 1}</span>
-                <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #ffffff;">${block.place.title}</h4>
-              </div>
-              <p style="margin: 6px 0 0 0; font-size: 12px; color: #94a3b8;">${block.place.roadAddress || block.place.address}</p>
-            </div>
-          `;
-
-          if (infoWindowRef.current) {
-            infoWindowRef.current.setContent(infoContent);
-            infoWindowRef.current.open(mapInstance.current!, marker);
-          }
+          executeFocusRequest({
+            requestId: Date.now(),
+            placeId: block.place.id,
+            blockId: block.id,
+            lat: block.place.lat,
+            lng: block.place.lng,
+            title: block.place.title,
+            address: block.place.roadAddress || block.place.address,
+            source: 'marker',
+          });
         });
 
         markersRef.current.set(block.id, marker);
@@ -256,86 +450,46 @@ export default function NaverMap({
     } catch (e: unknown) {
       console.error('Error rendering markers or routes:', e);
     }
-  }, [blocks, routes, onMarkerClick]);
+  }, [blocks, routes, onMarkerClick, executeFocusRequest]);
 
   // Priority 3: Initial plan load or Day change (fitBounds EXACTLY ONCE)
   useEffect(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
-    fitAllBounds();
+    if (dayChangeKey) {
+      fitAllBounds();
+    }
   }, [dayChangeKey, fitAllBounds]);
 
-  // Priority 1: Focus selected block on selectedBlockId & focusRequestId change
+  // Priority 1: Focus Request (triggers panTo at zoom 15 + infoWindow)
   useEffect(() => {
-    if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
-    if (!selectedPlace && !selectedBlockId) return;
+    if (!focusRequest) return;
 
-    const targetPlace = selectedPlace || blocks.find((b) => b.id === selectedBlockId)?.place;
-    if (!targetPlace) return;
-
-    const lat = Number(targetPlace.lat);
-    const lng = Number(targetPlace.lng);
-
-    const isValidLat = Number.isFinite(lat) && lat >= 33 && lat <= 39;
-    const isValidLng = Number.isFinite(lng) && lng >= 124 && lng <= 132;
-
-    if (!isValidLat || !isValidLng) {
-      const warningMsg = `'${targetPlace.title}' 장소의 위경도가 올바르지 않아 지도를 이동할 수 없습니다. (lat: ${lat}, lng: ${lng})`;
-      console.warn('[NaverMap]', warningMsg);
-      const timer = setTimeout(() => {
-        setCoordWarning(warningMsg);
-      }, 0);
-      const hideTimer = setTimeout(() => setCoordWarning(null), 4000);
-      return () => {
-        clearTimeout(timer);
-        clearTimeout(hideTimer);
-      };
+    if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) {
+      pendingFocusRequestRef.current = focusRequest;
+      return;
     }
 
-    const targetPos = new naver.maps.LatLng(lat, lng);
-    mapInstance.current.panTo(targetPos, {});
-    mapInstance.current.setZoom(15, true);
+    executeFocusRequest(focusRequest);
+  }, [focusRequest, executeFocusRequest]);
 
-    // Open info window if matching marker exists
-    const blockId = selectedBlockId || blocks.find((b) => b.place.lat === targetPlace.lat && b.place.lng === targetPlace.lng)?.id;
-    if (blockId && markersRef.current.has(blockId)) {
-      const marker = markersRef.current.get(blockId)!;
-      const idx = blocks.findIndex((b) => b.id === blockId);
-      const infoContent = `
-        <div style="
-          padding: 12px 16px;
-          background: rgba(15, 23, 42, 0.95);
-          backdrop-filter: blur(8px);
-          border: 1px solid rgba(255, 255, 255, 0.15);
-          border-radius: 12px;
-          color: #f8fafc;
-          min-width: 200px;
-          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
-          font-family: sans-serif;
-        ">
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <span style="
-              background: #10b981;
-              color: white;
-              font-size: 11px;
-              font-weight: bold;
-              padding: 2px 6px;
-              border-radius: 4px;
-            ">#${idx + 1}</span>
-            <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #ffffff;">${targetPlace.title}</h4>
-          </div>
-          <p style="margin: 6px 0 0 0; font-size: 12px; color: #94a3b8;">${targetPlace.roadAddress || targetPlace.address}</p>
-        </div>
-      `;
-      if (infoWindowRef.current) {
-        infoWindowRef.current.setContent(infoContent);
-        infoWindowRef.current.open(mapInstance.current!, marker);
-      }
-    }
-  }, [focusRequestId, selectedBlockId, selectedPlace, blocks]);
-
-  const totalDistanceMeter = routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
-  const totalDurationSeconds = routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+  // Driving Distance & Duration Calculation Rules (Only sum Naver API driving routes, exclude fallbacks)
+  const drivingSegments = routes.filter((r) => !r.isFallback && r.source === 'naver');
+  const hasDrivingRoutes = drivingSegments.length > 0;
   const hasFallbackRoute = routes.some((r) => r.isFallback || r.source === 'fallback');
+
+  const totalDrivingDistanceMeter = drivingSegments.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
+  const totalDrivingDurationSec = drivingSegments.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+
+  const formattedDrivingDist =
+    totalDrivingDistanceMeter >= 1000
+      ? `${(totalDrivingDistanceMeter / 1000).toFixed(1)}km`
+      : `${totalDrivingDistanceMeter}m`;
+
+  const totalDrivingMins = Math.ceil(totalDrivingDurationSec / 60);
+  const formattedDrivingDuration =
+    totalDrivingMins < 60
+      ? `${totalDrivingMins}분`
+      : `${Math.floor(totalDrivingMins / 60)}시간 ${totalDrivingMins % 60}분`;
 
   return (
     <div className="relative w-full h-full min-h-[350px] bg-slate-900 overflow-hidden">
@@ -388,33 +542,37 @@ export default function NaverMap({
         </div>
       )}
 
-      {/* Route Distance & Duration Summary Badge (FIXED: Uses totalDistanceMeter for <1km display!) */}
-      {blocks.length > 1 && routes.length > 0 && !mapError && (
-        <div className="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white px-4 py-2.5 rounded-2xl shadow-xl z-10 flex items-center gap-3">
-          <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
-            <Navigation className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-[11px] font-medium text-slate-400">
-              {hasFallbackRoute ? '총 예상 이동 거리/시간 (직선거리)' : '총 자동차 이동 거리/시간'}
+      {/* Route Distance & Duration Summary Badge (Wording & Calculation updated per Section 2) */}
+      {blocks.length > 1 && !mapError && (
+        <div className="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white px-4 py-3 rounded-2xl shadow-xl z-10 flex flex-col gap-1.5 max-w-xs">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+              <Navigation className="w-4 h-4" />
             </div>
-            <div className="text-xs font-bold text-slate-100 flex items-center gap-2">
-              <span>
-                {totalDistanceMeter >= 1000
-                  ? `${(totalDistanceMeter / 1000).toFixed(1)}km`
-                  : `${totalDistanceMeter}m`}
-              </span>
-              <span className="text-slate-500">•</span>
-              <span className="text-emerald-400">
-                {Math.floor(totalDurationSeconds / 3600) > 0
-                  ? `${Math.floor(totalDurationSeconds / 3600)}시간 `
-                  : ''}
-                {Math.ceil((totalDurationSeconds % 3600) / 60)}분
-              </span>
+            <div>
+              <div className="text-[11px] font-medium text-slate-400">
+                {hasDrivingRoutes ? '예상 자동차 이동 거리/시간' : '자동차 이동 경로 안내'}
+              </div>
+              <div className="text-xs font-bold text-slate-100 flex items-center gap-2 mt-0.5">
+                {hasDrivingRoutes ? (
+                  <>
+                    <span>{formattedDrivingDist}</span>
+                    <span className="text-slate-500">•</span>
+                    <span className="text-emerald-400">{formattedDrivingDuration}</span>
+                  </>
+                ) : (
+                  <span className="text-slate-400 text-[11px]">자동차 이동 경로를 계산할 수 없습니다.</span>
+                )}
+              </div>
             </div>
           </div>
+          <p className="text-[10px] text-slate-400 leading-tight pt-1 border-t border-slate-800/60">
+            * 실제 이동 거리와 시간은 교통 상황 및 경로에 따라 달라질 수 있습니다.
+          </p>
         </div>
       )}
     </div>
   );
-}
+});
+
+export default NaverMap;

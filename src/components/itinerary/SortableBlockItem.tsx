@@ -4,7 +4,8 @@ import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ItineraryBlock, RouteSegment } from '@/types/itinerary';
-import { GripVertical, X, MapPin, Car } from 'lucide-react';
+import { getNaverMapUrl } from '@/lib/naverMapUrl';
+import { GripVertical, X, MapPin, Car, ExternalLink } from 'lucide-react';
 
 interface SortableBlockItemProps {
   block: ItineraryBlock;
@@ -36,6 +37,8 @@ export default function SortableBlockItem({
     opacity: isDragging ? 0.4 : 1,
     zIndex: isDragging ? 50 : 1,
   };
+
+  const naverUrl = getNaverMapUrl(block.place);
 
   return (
     <div ref={setNodeRef} style={style} className="relative flex flex-col w-full group">
@@ -78,18 +81,29 @@ export default function SortableBlockItem({
           </p>
         </div>
 
-        {/* Single Delete Button (X) - Responsive for desktop hover & mobile touch */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(block.id);
-          }}
-          className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all shrink-0 opacity-80 md:opacity-0 group-hover/card:opacity-100 focus:opacity-100"
-          title="장소 제거"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {/* Action Buttons: Naver Detail Link & Delete X */}
+        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+          {naverUrl && (
+            <a
+              href={naverUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-all"
+              title="네이버 지도 상세보기 새 탭 열기"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          )}
+
+          <button
+            type="button"
+            onClick={() => onRemove(block.id)}
+            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all opacity-80 md:opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+            title="장소 제거"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Route Badge to Next Place (Driving Distance & Time) */}

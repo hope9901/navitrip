@@ -4,10 +4,10 @@ import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore, use 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
-import NaverMap from '@/components/map/NaverMap';
+import NaverMap, { NaverMapRefHandle } from '@/components/map/NaverMap';
 import MobileBottomSheet from '@/components/itinerary/MobileBottomSheet';
 import UserNameModal from '@/components/common/UserNameModal';
-import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData } from '@/types/itinerary';
+import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
 import { loadPlanFromDB } from '@/lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -29,8 +29,10 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   const resolvedParams = use(params);
   const initialPlanId = resolvedParams.id;
   const isMounted = useIsMounted();
+  const mapRef = useRef<NaverMapRefHandle>(null);
 
   const [currentPlanId, setCurrentPlanId] = useState<string>(initialPlanId);
+  const [loadedPlan, setLoadedPlan] = useState<PlanData | null>(null);
   const [userName, setUserName] = useState<string>('');
   const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(false);
   const [isChangeNameMode, setIsChangeNameMode] = useState<boolean>(false);
@@ -45,7 +47,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   // Camera Focus Priority State
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-  const [focusRequestId, setFocusRequestId] = useState<number>(0);
+  const [focusRequest, setFocusRequest] = useState<MapFocusRequest | null>(null);
   const [dayChangeKey, setDayChangeKey] = useState<number>(0);
 
   const [days, setDays] = useState<DayItinerary[]>([
@@ -91,6 +93,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       try {
         const fetchedPlan = await loadPlanFromDB(currentPlanId);
         if (fetchedPlan) {
+          setLoadedPlan(fetchedPlan);
           setPlanTitle(fetchedPlan.title || '공유받은 여행 일정');
           setAuthorName(fetchedPlan.authorName || '익명');
           if (fetchedPlan.days && fetchedPlan.days.length > 0) {
@@ -117,7 +120,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     return fetchedRoutes;
   }, [currentBlocks.length, fetchedRoutes]);
 
-  // Fetch Directions with AbortController to cancel stale requests when day or itinerary changes
+  // Fetch Directions with AbortController
   useEffect(() => {
     if (currentBlocks.length < 2) {
       return;
@@ -192,23 +195,35 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   const handleSelectBlock = (block: ItineraryBlock) => {
     setSelectedPlace(block.place);
     setSelectedBlockId(block.id);
-    setFocusRequestId((prev) => prev + 1);
+    setFocusRequest({
+      requestId: Date.now(),
+      placeId: block.place.id,
+      blockId: block.id,
+      lat: block.place.lat,
+      lng: block.place.lng,
+      title: block.place.title,
+      address: block.place.roadAddress || block.place.address,
+      source: 'sidebar',
+    });
   };
 
   const handleDayChange = (idx: number) => {
     setActiveDayIndex(idx);
     setSelectedPlace(null);
     setSelectedBlockId(null);
+    setFocusRequest(null);
     setFetchedRoutes([]);
     setDayChangeKey((prev) => prev + 1);
   };
 
   const handleLoadPlan = (plan: PlanData) => {
+    setLoadedPlan(plan);
     setPlanTitle(plan.title || '불러온 여행 일정');
     if (plan.id) setCurrentPlanId(plan.id);
     setAuthorName(plan.authorName || '익명');
     setSelectedPlace(null);
     setSelectedBlockId(null);
+    setFocusRequest(null);
     setFetchedRoutes([]);
     if (plan.days && plan.days.length > 0) {
       setDays(plan.days);
@@ -273,7 +288,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     onLoadPlan: handleLoadPlan,
     onNewPlan: handleNewPlan,
     onDeleteCurrentActivePlan: () => router.push('/'),
-    routeErrorMessage,
+    onRequestMapView: () => mapRef.current?.getMapView() || null,
   };
 
   return (
@@ -297,11 +312,13 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       {/* Main Naver Map Section */}
       <section className="flex-1 h-full relative z-10">
         <NaverMap
+          ref={mapRef}
           blocks={currentBlocks}
           routes={routes}
           selectedPlace={selectedPlace}
           selectedBlockId={selectedBlockId}
-          focusRequestId={focusRequestId}
+          focusRequest={focusRequest}
+          initialMapView={loadedPlan?.mapView || null}
           dayChangeKey={dayChangeKey}
           onMarkerClick={handleSelectBlock}
           routeErrorMessage={routeErrorMessage}

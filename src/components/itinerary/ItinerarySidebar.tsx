@@ -16,7 +16,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData } from '@/types/itinerary';
+import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView } from '@/types/itinerary';
 import SortableBlockItem from './SortableBlockItem';
 import PlaceSearchCard from '../search/PlaceSearchCard';
 import {
@@ -64,6 +64,7 @@ interface ItinerarySidebarProps {
   onLoadPlan?: (plan: PlanData) => void;
   onNewPlan?: () => void;
   onDeleteCurrentActivePlan?: () => void;
+  onRequestMapView?: () => SavedMapView | null;
 }
 
 const emptySubscribe = () => () => {};
@@ -92,6 +93,7 @@ export default function ItinerarySidebar({
   onLoadPlan,
   onNewPlan,
   onDeleteCurrentActivePlan,
+  onRequestMapView,
 }: ItinerarySidebarProps) {
   const isMounted = useIsMounted();
   const titleInputId = useId();
@@ -291,14 +293,15 @@ export default function ItinerarySidebar({
     setIsSaving(true);
     try {
       const isOtherAuthor = authorName && authorName !== userName && !isAdmin;
-      // If shared plan without management token, save as a BRAND NEW COPY with user's typed title (no forced suffix)
       const targetPlanId = isOtherAuthor ? undefined : planId;
       const targetTitle = planTitle.trim();
+      const currentMapView = onRequestMapView ? onRequestMapView() || undefined : undefined;
 
       const planData: PlanData = {
         id: targetPlanId,
         title: targetTitle,
         authorName: userName,
+        mapView: currentMapView,
         days,
       };
 
@@ -336,11 +339,13 @@ export default function ItinerarySidebar({
       const isOtherAuthor = authorName && authorName !== userName && !isAdmin;
       const targetPlanId = isOtherAuthor ? undefined : planId;
       const targetTitle = planTitle.trim();
+      const currentMapView = onRequestMapView ? onRequestMapView() || undefined : undefined;
 
       const planData: PlanData = {
         id: targetPlanId,
         title: targetTitle,
         authorName: userName,
+        mapView: currentMapView,
         days,
       };
 

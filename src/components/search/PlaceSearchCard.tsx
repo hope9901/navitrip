@@ -2,7 +2,8 @@
 
 import React, { useState, useId } from 'react';
 import { Place } from '@/types/itinerary';
-import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, AlertCircle, X } from 'lucide-react';
+import { getNaverMapUrl } from '@/lib/naverMapUrl';
+import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, AlertCircle, X, Navigation } from 'lucide-react';
 
 interface PlaceSearchCardProps {
   onAddPlace: (place: Place) => void;
@@ -79,15 +80,13 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
         } else if (geocodeWarn && geocodeWarn.code === 'AUTH_FAILED') {
           setWarningMsg('주소 검색: Naver Cloud Maps 키 인증에 실패했습니다.');
         } else {
-          setWarningMsg('일부 검색 API 서비스 연동에 경고가 발생했습니다.');
+          setWarningMsg('일부 검색 API 연동에 경고가 발생했습니다.');
         }
       }
 
       if (data.items && Array.isArray(data.items)) {
         setResults(data.items);
-        if (onSelectPlace && data.items[0]) {
-          onSelectPlace(data.items[0]);
-        }
+        // Note: Do NOT automatically trigger onSelectPlace on search completion to prevent map camera jumps!
       } else {
         setResults([]);
       }
@@ -106,7 +105,8 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
     resetSearch();
   };
 
-  const handleCardClick = (place: Place) => {
+  const handleFocusClick = (e: React.MouseEvent, place: Place) => {
+    e.stopPropagation();
     if (onSelectPlace) {
       onSelectPlace(place);
     }
@@ -114,7 +114,7 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
 
   return (
     <div className="flex flex-col gap-3 w-full">
-      {/* Search Bar */}
+      {/* Search Input Bar */}
       <form onSubmit={handleSearch} className="relative w-full">
         <input
           id={searchInputId}
@@ -122,7 +122,7 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="장소명 또는 도로명/지번 주소 입력 (예: 순천만국가정원, 속초 중앙시장)"
+          placeholder="장소명 또는 도로명/지번 주소 입력 (예: 순천만국가정원, 성심당 본점)"
           autoComplete="off"
           className="w-full pl-10 pr-24 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-inner"
         />
@@ -156,9 +156,9 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
         </div>
       )}
 
-      {/* Search Results Drawer / Cards */}
+      {/* Search Results Drawer / Panel */}
       {hasSearched && (
-        <div className="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+        <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
           {loading ? (
             <div className="py-8 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
               <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
@@ -176,11 +176,12 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
           ) : (
             results.map((place) => {
               const isAddressType = place.type === 'address';
+              const naverUrl = getNaverMapUrl(place);
 
               return (
                 <div
                   key={place.id}
-                  onClick={() => handleCardClick(place)}
+                  onClick={(e) => handleFocusClick(e, place)}
                   className="p-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-xl transition-all flex flex-col gap-2 group shadow-sm hover:shadow-md cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -197,7 +198,7 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
                           {isAddressType ? '주소' : '장소'}
                         </span>
 
-                        <h4 className="font-bold text-slate-100 text-xs truncate max-w-[220px]">
+                        <h4 className="font-bold text-slate-100 text-xs truncate max-w-[200px]">
                           {place.title}
                         </h4>
 
@@ -226,7 +227,7 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
 
                       {place.telephone && (
                         <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
-                          <Phone className="w-2.5 h-2.5 shrink-0" />
+                          <Phone className="w-2.5 h-2.5 shrink-0 text-slate-400" />
                           <span>{place.telephone}</span>
                         </p>
                       )}
@@ -234,26 +235,36 @@ export default function PlaceSearchCard({ onAddPlace, onSelectPlace }: PlaceSear
                   </div>
 
                   {/* Actions Bar */}
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-700/50 mt-1">
-                    {place.link ? (
-                      <a
-                        href={place.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-400 hover:text-sky-300 hover:underline"
+                  <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-700/50 mt-1" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => handleFocusClick(e, place)}
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                        title="navitrip 지도에서 위치 보기"
                       >
-                        <span>네이버 상세정보</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    ) : (
-                      <span className="text-[10px] text-slate-500">네이버 공식 결과</span>
-                    )}
+                        <Navigation className="w-3 h-3" />
+                        <span>지도에서 보기</span>
+                      </button>
+
+                      {naverUrl && (
+                        <a
+                          href={naverUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-400 hover:text-sky-300 hover:underline transition-colors"
+                          title="네이버 지도 상세 페이지 새 탭 열기"
+                        >
+                          <span>네이버 상세보기</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
 
                     <button
                       type="button"
                       onClick={(e) => handleAdd(e, place)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/90 hover:bg-emerald-500 text-white transition-all shadow-sm active:scale-95"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/90 hover:bg-emerald-500 text-white transition-all shadow-sm active:scale-95 shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>일정에 추가</span>
