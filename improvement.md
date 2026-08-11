@@ -117,3 +117,25 @@
 
 ### 3. 해결 대책
 - `NaverMap.tsx` 내 `selectedPlace` 카메라 이동(`panTo`) 실행 전 대한민국 위경도 유효 범위(`lat: 33 ~ 39`, `lng: 124 ~ 132`) 및 `Number.isFinite()` 검증 로직을 엄격하게 적용하여 0 또는 비정상 좌표로 지도가 튀는 버그를 원천 차단.
+
+---
+
+## 이슈 18: Vercel 경로 API 엄격 검증, 지도 카메라 우선순위, 보안 삭제 토큰 및 공유 일정 복사 저장 종합 개편
+
+### 1. 지적 및 문제점
+- **지적 내용**:
+  1. Directions API 호출 실패 시 Haversine 직선 경로로 자동 대체되어 실제 서버 오류가 은폐되는 현상.
+  2. 지도 카메라가 경로 갱신 시마다 fitBounds를 재실행하여 사용자가 선택한 장소 포커스를 덮어쓰는 문제.
+  3. 단순히 작성자 닉네임이나 admin 문구만으로 타인의 일정을 삭제할 수 있는 보안 문제.
+  4. 공유받은 일정을 수정 및 저장할 때 복사본 저장 워크플로우 미비 및 URL 미전환 문제.
+
+### 2. 원인 분석
+- 서버 API 라우트에서 오류 발생 시 fallback 객체를 그대로 리턴하였음.
+- 카메라 fitBounds 제어와 마커/경로 렌더링 effect가 분리되지 않고 묶여 있었음.
+- 일정 삭제 시 암호화 검증 없이 단순 authorString을 확인하였음.
+
+### 3. 해결 대책
+- **Directions API**: 서버 전용 환경변수(`NAVER_MAP_CLIENT_ID`, `NAVER_MAP_CLIENT_SECRET`)만 엄격 조회, 실패 시 HTTP 502 구조화 JSON 반환 (`ALLOW_ROUTE_FALLBACK=true` 시 회색 점선 표시). `AbortController`로 비동기 취소 적용.
+- **카메라 제어**: 우선순위 1(선택 블록 panTo), 2(전체 보기 버튼), 3(일정/날짜 변경 fitBounds 1회) 분리 구축. `selectedBlockId` + `focusRequestId`로 동일 블록 재클릭 포커스 구현. NaverMap 1km 미만 거리 표시 버그(`durationSeconds` ➔ `distanceMeter`) 수정.
+- **보안 토큰 시스템**: 일정 저장 시 32자리 `manageToken` 생성, client localStorage에 원문 저장, Supabase에는 `token_hash` (SHA-256) 저장. `/api/plans/[id]` DELETE/PATCH 검증 추가. 모달 삭제 UI(확인창, 로딩 상태, 삭제 후 활성 일정 초기화) 구현.
+- **공유 일정 복사 저장**: 공유받은 사용자 저장 시 입력한 제목 그대로 새 복사본 생성 후 `router.replace('/plan/[newId]')`로 상태 전환하여 중복 생성 방지.
