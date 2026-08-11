@@ -338,22 +338,18 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     []
   );
 
-  // Initialize Map Instance with dynamic zoomControl based on screen width
+  // Initialize Map Instance
   useEffect(() => {
     if (!isScriptLoaded || !mapElement.current || mapInstance.current) return;
 
     try {
-      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
       const defaultCenter = new naver.maps.LatLng(37.5665, 126.9780);
       const mapOptions: naver.maps.MapOptions = {
         center: defaultCenter,
         zoom: 12,
         minZoom: 6,
         maxZoom: 19,
-        zoomControl: !isMobile,
-        zoomControlOptions: {
-          position: naver.maps.Position.TOP_RIGHT,
-        },
+        zoomControl: false,
       };
 
       mapInstance.current = new naver.maps.Map(mapElement.current, mapOptions);
@@ -390,20 +386,6 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
       return () => clearTimeout(timer);
     }
   }, [isScriptLoaded, initialMapView, applyInitialViewport, executeFocusRequest, onMapReadyChange]);
-
-  // Window Resize Listener for dynamic zoomControl option updates (Mobile vs Desktop)
-  useEffect(() => {
-    const handleWindowResize = () => {
-      if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
-      const isMobile = window.innerWidth < 768;
-      mapInstance.current.setOptions({
-        zoomControl: !isMobile,
-      });
-    };
-
-    window.addEventListener('resize', handleWindowResize);
-    return () => window.removeEventListener('resize', handleWindowResize);
-  }, []);
 
   // ResizeObserver for Map DOM element resizing
   useEffect(() => {
