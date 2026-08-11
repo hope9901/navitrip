@@ -122,8 +122,13 @@ function isDuplicate(a: Place, b: Place): boolean {
 }
 
 async function searchLocal(query: string): Promise<Place[]> {
-  const searchClientId = process.env.NAVER_SEARCH_CLIENT_ID;
-  const searchClientSecret = process.env.NAVER_SEARCH_CLIENT_SECRET;
+  const searchClientId =
+    process.env.NAVER_SEARCH_CLIENT_ID ||
+    process.env.NEXT_PUBLIC_NAVER_SEARCH_CLIENT_ID;
+
+  const searchClientSecret =
+    process.env.NAVER_SEARCH_CLIENT_SECRET ||
+    process.env.NEXT_PUBLIC_NAVER_SEARCH_CLIENT_SECRET;
 
   if (!searchClientId || !searchClientSecret) {
     throw new NaverApiError('localSearch', 'NOT_CONFIGURED');
@@ -207,8 +212,13 @@ async function searchLocal(query: string): Promise<Place[]> {
 }
 
 async function geocodeAddress(query: string): Promise<Place[]> {
-  const mapClientId = process.env.NAVER_MAP_CLIENT_ID;
-  const mapClientSecret = process.env.NAVER_MAP_CLIENT_SECRET;
+  const mapClientId =
+    process.env.NAVER_MAP_CLIENT_ID ||
+    process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
+
+  const mapClientSecret =
+    process.env.NAVER_MAP_CLIENT_SECRET ||
+    process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_SECRET;
 
   if (!mapClientId || !mapClientSecret) {
     throw new NaverApiError('geocoding', 'NOT_CONFIGURED');
@@ -362,11 +372,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Ranking / Sorting Rule:
-  // 1. Places where clean title exactly equals user query
-  // 2. Places where clean title includes user query
-  // 3. Geocoding address results
-  // 4. Remaining place results
   const normQuery = normalizeStr(query);
 
   const exactMatchPlaces: Place[] = [];

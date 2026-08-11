@@ -67,6 +67,7 @@ async function fetchSegmentRoute(
   };
 
   if (!ncpKeyId || !ncpKeySecret) {
+    console.warn('[Directions API] Missing ncpKeyId or ncpKeySecret on environment variables. Using fallback estimation.');
     return fallbackSegment;
   }
 
@@ -77,6 +78,7 @@ async function fetchSegmentRoute(
         'x-ncp-apigw-api-key-id': ncpKeyId,
         'x-ncp-apigw-api-key': ncpKeySecret,
       },
+      cache: 'no-store',
     });
 
     if (!res.ok) {
@@ -124,8 +126,13 @@ export async function POST(request: NextRequest) {
     const body: DirectionsRequestBody = await request.json();
     const { start, goal, waypoints } = body;
 
-    const ncpKeyId = process.env.NAVER_MAP_CLIENT_ID;
-    const ncpKeySecret = process.env.NAVER_MAP_CLIENT_SECRET;
+    const ncpKeyId =
+      process.env.NAVER_MAP_CLIENT_ID ||
+      process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
+
+    const ncpKeySecret =
+      process.env.NAVER_MAP_CLIENT_SECRET ||
+      process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_SECRET;
 
     // Case A: Received waypoints array (Leg-by-leg calculation for N places)
     if (waypoints && Array.isArray(waypoints) && waypoints.length >= 2) {

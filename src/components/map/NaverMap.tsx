@@ -41,7 +41,11 @@ export default function NaverMap({
       return;
     }
 
-    const ncpKeyId = clientId || process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || '';
+    const ncpKeyId =
+      clientId ||
+      process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID ||
+      process.env.NAVER_MAP_CLIENT_ID ||
+      '';
 
     if (!ncpKeyId || ncpKeyId.includes('your_')) {
       const timer = setTimeout(() => {
@@ -119,18 +123,24 @@ export default function NaverMap({
       polylinesRef.current.forEach((p) => p.setMap(null));
       polylinesRef.current = [];
 
-      if (blocks.length === 0) return;
+      const validBlocks = blocks.filter((b) => {
+        const lat = Number(b.place.lat);
+        const lng = Number(b.place.lng);
+        return Number.isFinite(lat) && lat >= 33 && lat <= 39 && Number.isFinite(lng) && lng >= 124 && lng <= 132;
+      });
+
+      if (validBlocks.length === 0) return;
 
       const firstPosition = new naver.maps.LatLng(
-        blocks[0].place.lat,
-        blocks[0].place.lng
+        validBlocks[0].place.lat,
+        validBlocks[0].place.lng
       );
       const bounds = new naver.maps.LatLngBounds(
         firstPosition,
         firstPosition
       );
 
-      blocks.forEach((block, idx) => {
+      validBlocks.forEach((block, idx) => {
         const position = new naver.maps.LatLng(block.place.lat, block.place.lng);
         bounds.extend(position);
 
@@ -230,7 +240,7 @@ export default function NaverMap({
         }
       });
 
-      if (blocks.length > 0) {
+      if (validBlocks.length > 0) {
         mapInstance.current.fitBounds(bounds, {
           top: 60,
           right: 60,
@@ -243,11 +253,22 @@ export default function NaverMap({
     }
   }, [blocks, routes, onMarkerClick]);
 
-  // Center map when selectedPlace changes
+  // Center map smoothly when selectedPlace changes
   useEffect(() => {
-    if (!mapInstance.current || !selectedPlace || typeof naver === 'undefined') return;
+    if (!mapInstance.current || !selectedPlace || typeof naver === 'undefined' || !naver.maps) return;
     try {
-      const targetPos = new naver.maps.LatLng(selectedPlace.lat, selectedPlace.lng);
+      const lat = Number(selectedPlace.lat);
+      const lng = Number(selectedPlace.lng);
+
+      const isValidLat = Number.isFinite(lat) && lat >= 33 && lat <= 39;
+      const isValidLng = Number.isFinite(lng) && lng >= 124 && lng <= 132;
+
+      if (!isValidLat || !isValidLng) {
+        console.warn('[NaverMap] Refusing to pan to invalid coordinates:', selectedPlace);
+        return;
+      }
+
+      const targetPos = new naver.maps.LatLng(lat, lng);
       mapInstance.current.panTo(targetPos, {});
       mapInstance.current.setZoom(15, true);
     } catch (e: unknown) {
@@ -275,7 +296,7 @@ export default function NaverMap({
             <div className="mt-2 text-[11px] text-slate-400 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 space-y-1">
               <p className="font-semibold text-emerald-400">💡 해결 방법 (Naver Cloud 콘솔):</p>
               <p>1. <b>AI·NAVER API ➔ Application 수정</b> 메뉴로 이동합니다.</p>
-              <p>2. <b>Web 서비스 URL</b>에 <code>http://localhost:3000</code> 및 <code>http://localhost:3001</code>을 등록합니다.</p>
+              <p>2. <b>Web 서비스 URL</b>에 본인의 Vercel 도메인(예: <code>https://your-app.vercel.app</code>) 및 <code>http://localhost:3000</code>을 추가합니다.</p>
               <p>3. 선택 서비스에서 <b>Web Dynamic Map</b> 항목이 체크되어 있는지 확인합니다.</p>
             </div>
           </div>
