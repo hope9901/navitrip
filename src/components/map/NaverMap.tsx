@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { Place, ItineraryBlock, RouteSegment, SavedMapView, MapFocusRequest } from '@/types/itinerary';
 import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
-import { Navigation, AlertTriangle, Maximize2, Info, RefreshCw, Clock } from 'lucide-react';
+import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
+import { AlertTriangle, Maximize2, Info } from 'lucide-react';
 
 export interface NaverMapRefHandle {
   getMapView: () => SavedMapView | null;
@@ -67,7 +68,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
   const [mapError, setMapError] = useState<string | null>(null);
   const [coordWarning, setCoordWarning] = useState<string | null>(null);
 
-  // Fit bounds helper function (Priority 2 & 3) - Closes InfoWindow when "전체 보기" is triggered
+  // Fit bounds helper function - Closes InfoWindow when "전체 보기" is triggered
   const fitAllBounds = useCallback(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
 
@@ -337,18 +338,19 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     []
   );
 
-  // Initialize Map Instance
+  // Initialize Map Instance with dynamic zoomControl based on screen width
   useEffect(() => {
     if (!isScriptLoaded || !mapElement.current || mapInstance.current) return;
 
     try {
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
       const defaultCenter = new naver.maps.LatLng(37.5665, 126.9780);
       const mapOptions: naver.maps.MapOptions = {
         center: defaultCenter,
         zoom: 12,
         minZoom: 6,
         maxZoom: 19,
-        zoomControl: true,
+        zoomControl: !isMobile,
         zoomControlOptions: {
           position: naver.maps.Position.TOP_RIGHT,
         },
@@ -388,6 +390,20 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
       return () => clearTimeout(timer);
     }
   }, [isScriptLoaded, initialMapView, applyInitialViewport, executeFocusRequest, onMapReadyChange]);
+
+  // Window Resize Listener for dynamic zoomControl option updates (Mobile vs Desktop)
+  useEffect(() => {
+    const handleWindowResize = () => {
+      if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+      const isMobile = window.innerWidth < 768;
+      mapInstance.current.setOptions({
+        zoomControl: !isMobile,
+      });
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, []);
 
   // ResizeObserver for Map DOM element resizing
   useEffect(() => {
@@ -495,7 +511,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     }
   }, [blocks, routes, onMarkerClick, executeFocusRequest]);
 
-  // Priority 3: Initial plan load or Day change (fitBounds EXACTLY ONCE)
+  // Priority 3: Initial plan load or Day change
   useEffect(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
     if (dayChangeKey) {
@@ -515,40 +531,10 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     executeFocusRequest(focusRequest);
   }, [focusRequest, executeFocusRequest]);
 
-  // Driving Distance & Duration Calculation Rules (Only sum Naver API driving routes, exclude fallbacks)
-  const drivingSegments = routes.filter((r) => !r.isFallback && (r.source === 'live' || r.source === 'cache' || r.source === 'saved' || r.source === 'naver'));
-  const hasDrivingRoutes = drivingSegments.length > 0;
   const hasFallbackRoute = routes.some((r) => r.isFallback || r.source === 'fallback');
 
-  const totalDrivingDistanceMeter = drivingSegments.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
-  const totalDrivingDurationSec = drivingSegments.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
-
-  const formattedDrivingDist =
-    totalDrivingDistanceMeter >= 1000
-      ? `${(totalDrivingDistanceMeter / 1000).toFixed(1)}km`
-      : `${totalDrivingDistanceMeter}m`;
-
-  const totalDrivingMins = Math.ceil(totalDrivingDurationSec / 60);
-  const formattedDrivingDuration =
-    totalDrivingMins < 60
-      ? `${totalDrivingMins}분`
-      : `${Math.floor(totalDrivingMins / 60)}시간 ${totalDrivingMins % 60}분`;
-
-  // Status Badge Label based on routeSource
-  const getSourceBadgeLabel = () => {
-    if (!routeSource || routeSource === 'live') return '최신 예상 경로';
-    if (routeSource === 'saved') return '저장된 예상 경로';
-    if (routeSource === 'cache') return '서버 캐시 예상 경로';
-    if (routeSource === 'stale-cache') return '이전 계산 결과';
-    return '예상 경로';
-  };
-
-  const formattedCalcTime = calculatedAt
-    ? new Date(calculatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    : null;
-
   return (
-    <div className="relative w-full h-full min-h-[350px] bg-slate-900 overflow-hidden">
+    <div className="relative w-full h-full min-h-[250px] bg-slate-900 overflow-hidden">
       <div ref={mapElement} className="w-full h-full" />
 
       {/* Manual "Fit All Bounds" Camera Control Button */}
@@ -556,7 +542,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         <button
           type="button"
           onClick={fitAllBounds}
-          className="absolute top-4 left-4 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold shadow-xl z-20 flex items-center gap-1.5 transition-all active:scale-95"
+          className="absolute top-4 left-4 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold shadow-xl z-20 flex items-center gap-1.5 transition-all active:scale-95 min-h-[38px]"
           title="전체 일정 장소 지도에 한눈에 보기"
         >
           <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -592,72 +578,25 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
       {/* Driving Route Failure / Fallback Notice */}
       {(hasFallbackRoute || routeErrorMessage) && !mapError && (
-        <div className="absolute top-4 right-14 bg-slate-900/90 border border-slate-700 backdrop-blur-md text-slate-300 text-xs px-3 py-2 rounded-xl z-20 flex items-center gap-2 shadow-lg">
+        <div className="absolute top-4 right-14 md:right-14 bg-slate-900/90 border border-slate-700 backdrop-blur-md text-slate-300 text-xs px-3 py-2 rounded-xl z-20 flex items-center gap-2 shadow-lg max-w-[260px] md:max-w-none truncate">
           <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />
-          <span>{routeErrorMessage || '자동차 경로를 불러오지 못해 직선거리만 표시합니다.'}</span>
+          <span className="truncate">{routeErrorMessage || '자동차 경로를 불러오지 못해 직선거리만 표시합니다.'}</span>
         </div>
       )}
 
-      {/* Route Distance & Duration Summary Badge with Force Refresh Button & Cache Metadata */}
-      {blocks.length > 1 && !mapError && (
-        <div className="absolute bottom-6 right-6 bg-slate-900/95 backdrop-blur-md border border-slate-700/70 text-white px-4 py-3 rounded-2xl shadow-xl z-10 flex flex-col gap-2 max-w-xs border-l-4 border-l-emerald-500">
-          <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                {getSourceBadgeLabel()}
-              </span>
-              {formattedCalcTime && (
-                <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-slate-500" />
-                  <span>{formattedCalcTime}</span>
-                </span>
-              )}
-            </div>
-
-            {onForceRefreshRoute && (
-              <button
-                type="button"
-                onClick={onForceRefreshRoute}
-                disabled={isRefreshingRoute || refreshCooldownSeconds > 0}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-emerald-400 hover:text-emerald-300 rounded-lg text-[10px] font-semibold transition-all border border-slate-700/60 active:scale-95"
-                title="현재 Day의 자동차 예상 시간 실시간 재계산"
-              >
-                <RefreshCw className={`w-3 h-3 ${isRefreshingRoute ? 'animate-spin' : ''}`} />
-                <span>
-                  {isRefreshingRoute
-                    ? '계산중...'
-                    : refreshCooldownSeconds > 0
-                    ? `${refreshCooldownSeconds}초`
-                    : '예상 시간 새로고침'}
-                </span>
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl shrink-0">
-              <Navigation className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[11px] font-medium text-slate-400">예상 자동차 이동 거리/시간</div>
-              <div className="text-xs font-bold text-slate-100 flex items-center gap-2 mt-0.5">
-                {hasDrivingRoutes ? (
-                  <>
-                    <span>{formattedDrivingDist}</span>
-                    <span className="text-slate-500">•</span>
-                    <span className="text-emerald-400">{formattedDrivingDuration}</span>
-                  </>
-                ) : (
-                  <span className="text-slate-400 text-[11px]">자동차 이동 경로를 계산할 수 없습니다.</span>
-                )}
-              </div>
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-400 leading-tight pt-1 border-t border-slate-800/60">
-            * 실제 이동 거리와 시간은 교통 상황 및 경로에 따라 달라질 수 있습니다.
-          </p>
-        </div>
-      )}
+      {/* Desktop Floating Route Summary Card (hidden on mobile, floating bottom-right on desktop) */}
+      <div className="absolute bottom-6 right-6 z-10 hidden md:flex">
+        <RouteSummaryCard
+          routes={routes}
+          routeSource={routeSource}
+          calculatedAt={calculatedAt}
+          onForceRefreshRoute={onForceRefreshRoute}
+          isRefreshingRoute={isRefreshingRoute}
+          refreshCooldownSeconds={refreshCooldownSeconds}
+          variant="desktop"
+          blockCount={blocks.length}
+        />
+      </div>
     </div>
   );
 });

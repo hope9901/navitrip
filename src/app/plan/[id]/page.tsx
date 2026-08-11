@@ -10,6 +10,7 @@ import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
 import { loadPlanFromDB } from '@/lib/supabase';
 import { createRouteSignature } from '@/lib/routeSignature';
+import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 interface PlanPageProps {
@@ -422,6 +423,20 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           onRequestMapView={() => mapRef.current?.getMapView() || null}
         />
       </aside>
+
+      {/* Mobile Dedicated Route Summary Card (Normal document flow, visible on mobile only) */}
+      <div className="shrink-0 md:hidden w-full z-10">
+        <RouteSummaryCard
+          routes={routes}
+          routeSource={routeSource}
+          calculatedAt={calculatedAt}
+          onForceRefreshRoute={handleForceRefreshRoute}
+          isRefreshingRoute={isRefreshingRoute}
+          refreshCooldownSeconds={refreshCooldownSeconds}
+          variant="mobile"
+          blockCount={currentBlocks.length}
+        />
+      </div>
 
       {/* Main Map View Area */}
       <main className="flex-1 relative h-full w-full bg-slate-900 overflow-hidden">
