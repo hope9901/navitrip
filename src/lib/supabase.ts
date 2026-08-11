@@ -16,16 +16,64 @@ export interface SavedPlanSummary {
   authorName?: string;
   updatedAt?: string;
   placeCount: number;
+  hasManageToken?: boolean;
+}
+
+// Generate random 32-character hex token
+export function generateManageToken(): string {
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+    const arr = new Uint8Array(16);
+    window.crypto.getRandomValues(arr);
+    return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return `token_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+}
+
+// Browser SHA-256 helper
+export async function sha256Browser(message: string): Promise<string> {
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+    const msgUint8 = new TextEncoder().encode(message);
+    const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgUint8);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return message;
+}
+
+export function getStoredManageToken(planId: string): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(`navitrip_manage_token_${planId}`);
+}
+
+export function saveStoredManageToken(planId: string, token: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(`navitrip_manage_token_${planId}`, token);
+}
+
+export function removeStoredManageToken(planId: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(`navitrip_manage_token_${planId}`);
 }
 
 // Helper function to save plan to Supabase or LocalStorage
-export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLocalFallback: boolean }> {
+export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manageToken: string; isLocalFallback: boolean }> {
   const planId = plan.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const authorName = plan.authorName || '익명';
+
+  let manageToken = plan.manageToken || getStoredManageToken(planId);
+  if (!manageToken) {
+    manageToken = generateManageToken();
+  }
+
+  saveStoredManageToken(planId, manageToken);
+
+  const tokenHash = await sha256Browser(manageToken);
+
   const payload = {
     ...plan,
     id: planId,
     authorName,
+    manageToken,
     updatedAt: new Date().toISOString(),
   };
 
@@ -37,6 +85,7 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLoca
           id: planId,
           title: plan.title,
           author_name: authorName,
+          token_hash: tokenHash,
           days: plan.days,
           created_at: plan.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -45,25 +94,27 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLoca
         .single();
 
       if (error) {
-        // If author_name column does not exist in Supabase schema, retry upserting without author_name
-        if (error.code === '42703' || error.message?.includes('author_name')) {
+        // If token_hash or author_name column doesn't exist yet in Supabase schema, retry upserting without missing column
+        if (error.code === '42703' || error.message?.includes('token_hash') || error.message?.includes('author_name')) {
           const { data: retryData, error: retryErr } = await supabase
             .from('plans')
             .upsert({
               id: planId,
               title: plan.title,
+              author_name: authorName,
               days: plan.days,
               created_at: plan.createdAt || new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
             .select()
             .single();
+
           if (retryErr) throw retryErr;
-          return { id: retryData.id, isLocalFallback: false };
+          return { id: retryData.id, manageToken, isLocalFallback: false };
         }
         throw error;
       }
-      return { id: data.id, isLocalFallback: false };
+      return { id: data.id, manageToken, isLocalFallback: false };
     } catch (err) {
       console.warn('Supabase save error, falling back to LocalStorage:', err);
     }
@@ -73,11 +124,13 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; isLoca
   if (typeof window !== 'undefined') {
     localStorage.setItem(`travel_plan_${planId}`, JSON.stringify(payload));
   }
-  return { id: planId, isLocalFallback: true };
+  return { id: planId, manageToken, isLocalFallback: true };
 }
 
 // Helper function to load a single plan from Supabase or LocalStorage
 export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
+  const localToken = getStoredManageToken(planId);
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
@@ -91,6 +144,7 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
           id: data.id,
           title: data.title,
           authorName: data.author_name || '익명',
+          manageToken: localToken || undefined,
           days: data.days,
           createdAt: data.created_at,
           updatedAt: data.updated_at,
@@ -106,7 +160,11 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
     const local = localStorage.getItem(`travel_plan_${planId}`);
     if (local) {
       try {
-        return JSON.parse(local);
+        const parsed = JSON.parse(local);
+        return {
+          ...parsed,
+          manageToken: localToken || parsed.manageToken,
+        };
       } catch (e) {
         console.error('Error parsing local plan:', e);
       }
@@ -114,6 +172,43 @@ export async function loadPlanFromDB(planId: string): Promise<PlanData | null> {
   }
 
   return null;
+}
+
+// Helper function to delete plan from Supabase and LocalStorage
+export async function deletePlanFromDB(planId: string, authorName?: string): Promise<{ ok: boolean; message?: string }> {
+  const manageToken = getStoredManageToken(planId) || '';
+
+  // Call Server Route Handler to verify token and delete securely
+  try {
+    const res = await fetch(`/api/plans/${planId}`, {
+      method: 'DELETE',
+      headers: {
+        'x-manage-token': manageToken,
+        'x-author-name': authorName || '',
+      },
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.message || '일정 삭제에 실패했습니다.');
+    }
+  } catch (err) {
+    // If offline or network error, check if local fallback
+    console.error('Server delete route failed:', err);
+    if (!isSupabaseConfigured) {
+      // Local fallback proceed
+    } else {
+      throw err;
+    }
+  }
+
+  // Remove from LocalStorage
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(`travel_plan_${planId}`);
+    removeStoredManageToken(planId);
+  }
+
+  return { ok: true, message: '일정이 성공적으로 삭제되었습니다.' };
 }
 
 // Helper function to list saved plans filtered by authorName (Support Admin Mode)
@@ -152,6 +247,7 @@ export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<S
             authorName: item.author_name || '익명',
             updatedAt: item.updated_at,
             placeCount: count,
+            hasManageToken: Boolean(getStoredManageToken(item.id)),
           });
         }
       }
@@ -190,6 +286,7 @@ export async function listSavedPlansFromDB(targetAuthorName?: string): Promise<S
                 authorName: itemAuthor,
                 updatedAt: parsed.updatedAt || parsed.created_at,
                 placeCount: count,
+                hasManageToken: Boolean(getStoredManageToken(parsed.id)),
               });
             }
           } catch {

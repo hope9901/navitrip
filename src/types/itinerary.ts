@@ -29,6 +29,8 @@ export interface RouteSegment {
   formattedDistance: string;
   formattedDuration: string;
   path?: Array<[number, number]>; // [lat, lng]
+  isFallback?: boolean;
+  source?: 'naver' | 'fallback';
 }
 
 export interface DayItinerary {
@@ -40,6 +42,7 @@ export interface PlanData {
   id?: string;
   title: string;
   authorName?: string;
+  manageToken?: string;
   days: DayItinerary[];
   createdAt?: string;
   updatedAt?: string;

@@ -47,12 +47,17 @@ interface DirectionsRequestBody {
   waypoints?: Point[];
 }
 
+type FetchSegmentResult =
+  | { success: true; segment: RouteSegment; isFallback: boolean; source: 'naver' | 'fallback' }
+  | { success: false; httpStatus: number; code: string; naverErrorCode?: string; message: string };
+
 async function fetchSegmentRoute(
   start: Point,
   goal: Point,
-  ncpKeyId?: string,
-  ncpKeySecret?: string
-): Promise<RouteSegment> {
+  ncpKeyId: string,
+  ncpKeySecret: string,
+  allowFallback: boolean
+): Promise<FetchSegmentResult> {
   const fallbackDistance = calculateHaversineDistance(start.lat, start.lng, goal.lat, goal.lng);
   const fallbackDuration = estimateDrivingTimeSeconds(fallbackDistance);
   const fallbackSegment: RouteSegment = {
@@ -64,12 +69,9 @@ async function fetchSegmentRoute(
       [start.lat, start.lng],
       [goal.lat, goal.lng],
     ],
+    isFallback: true,
+    source: 'fallback',
   };
-
-  if (!ncpKeyId || !ncpKeySecret) {
-    console.warn('[Directions API] Missing ncpKeyId or ncpKeySecret on environment variables. Using fallback estimation.');
-    return fallbackSegment;
-  }
 
   try {
     const url = `https://maps.apigw.ntruss.com/map-direction/v1/driving?start=${start.lng},${start.lat}&goal=${goal.lng},${goal.lat}&option=trafast`;
@@ -82,15 +84,42 @@ async function fetchSegmentRoute(
     });
 
     if (!res.ok) {
-      const errText = await res.text();
-      console.warn('[Directions API] Response HTTP Not OK:', res.status, errText);
-      return fallbackSegment;
+      let naverErrorCode = 'UNKNOWN';
+      try {
+        const errJson = await res.json();
+        naverErrorCode = String(errJson.error?.errorCode || errJson.errorCode || errJson.code || 'UNKNOWN');
+      } catch {
+        // ignore
+      }
+
+      console.warn('[Directions API] Naver API HTTP Error:', { status: res.status, naverErrorCode });
+
+      if (allowFallback) {
+        return { success: true, segment: fallbackSegment, isFallback: true, source: 'fallback' };
+      }
+
+      return {
+        success: false,
+        httpStatus: res.status,
+        code: res.status === 401 || res.status === 403 ? 'AUTH_FAILED' : 'UPSTREAM_ERROR',
+        naverErrorCode,
+        message: '자동차 경로를 불러오지 못했습니다.',
+      };
     }
 
     const data = await res.json();
 
     if (data.code !== 0 && data.code !== '0') {
       console.warn('[Directions API] Returned non-zero code:', data.code, data.message);
+      if (!allowFallback) {
+        return {
+          success: false,
+          httpStatus: 502,
+          code: 'UPSTREAM_ERROR',
+          naverErrorCode: String(data.code),
+          message: data.message || '자동차 경로를 불러오지 못했습니다.',
+        };
+      }
     }
 
     const traObj =
@@ -101,23 +130,43 @@ async function fetchSegmentRoute(
 
     if (traObj && traObj.summary && Array.isArray(traObj.path) && traObj.path.length > 0) {
       const summary = traObj.summary;
-      // Naver Driving API returns path as [longitude, latitude]. Map to [latitude, longitude] for Naver Maps LatLng:
       const path: Array<[number, number]> = traObj.path.map(([lng, lat]: [number, number]) => [lat, lng]);
       const durationSec = Math.round((summary.duration || 0) / 1000);
 
-      return {
+      const segment: RouteSegment = {
         distanceMeter: summary.distance,
         durationSeconds: durationSec,
         formattedDistance: formatDistance(summary.distance),
         formattedDuration: formatDuration(durationSec),
         path,
+        isFallback: false,
+        source: 'naver',
       };
+
+      return { success: true, segment, isFallback: false, source: 'naver' };
     }
 
-    return fallbackSegment;
+    if (allowFallback) {
+      return { success: true, segment: fallbackSegment, isFallback: true, source: 'fallback' };
+    }
+
+    return {
+      success: false,
+      httpStatus: 502,
+      code: 'UPSTREAM_ERROR',
+      message: '네이버 경로 데이터가 비어 있습니다.',
+    };
   } catch (err) {
-    console.warn('[Directions API] Exception occurred, using fallback estimation:', err);
-    return fallbackSegment;
+    console.error('[Directions API] Network Exception:', err);
+    if (allowFallback) {
+      return { success: true, segment: fallbackSegment, isFallback: true, source: 'fallback' };
+    }
+    return {
+      success: false,
+      httpStatus: 502,
+      code: 'UPSTREAM_ERROR',
+      message: '자동차 경로 네트워크 요청 중 오류가 발생했습니다.',
+    };
   }
 }
 
@@ -126,44 +175,134 @@ export async function POST(request: NextRequest) {
     const body: DirectionsRequestBody = await request.json();
     const { start, goal, waypoints } = body;
 
-    const ncpKeyId =
-      process.env.NAVER_MAP_CLIENT_ID ||
-      process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID;
+    // Strict Server Environment Variables ONLY
+    const ncpKeyId = process.env.NAVER_MAP_CLIENT_ID;
+    const ncpKeySecret = process.env.NAVER_MAP_CLIENT_SECRET;
+    const allowFallback = process.env.ALLOW_ROUTE_FALLBACK === 'true';
 
-    const ncpKeySecret =
-      process.env.NAVER_MAP_CLIENT_SECRET ||
-      process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_SECRET;
+    // Diagnostic logging for Vercel deployment (Never log secret value!)
+    console.log('[Directions API] Server environment check:', {
+      NAVER_MAP_CLIENT_ID_configured: Boolean(ncpKeyId),
+      NAVER_MAP_CLIENT_SECRET_configured: Boolean(ncpKeySecret),
+      ALLOW_ROUTE_FALLBACK: allowFallback,
+    });
 
-    // Case A: Received waypoints array (Leg-by-leg calculation for N places)
+    if (!ncpKeyId || !ncpKeySecret) {
+      if (allowFallback && waypoints && waypoints.length >= 2) {
+        const fallbackSegments: RouteSegment[] = [];
+        for (let i = 0; i < waypoints.length - 1; i++) {
+          const d = calculateHaversineDistance(waypoints[i].lat, waypoints[i].lng, waypoints[i + 1].lat, waypoints[i + 1].lng);
+          const t = estimateDrivingTimeSeconds(d);
+          fallbackSegments.push({
+            distanceMeter: d,
+            durationSeconds: t,
+            formattedDistance: formatDistance(d),
+            formattedDuration: formatDuration(t),
+            path: [[waypoints[i].lat, waypoints[i].lng], [waypoints[i + 1].lat, waypoints[i + 1].lng]],
+            isFallback: true,
+            source: 'fallback',
+          });
+        }
+        return NextResponse.json({
+          ok: true,
+          source: 'fallback',
+          isFallback: true,
+          routes: fallbackSegments,
+        });
+      }
+
+      return NextResponse.json(
+        {
+          ok: false,
+          service: 'directions',
+          code: 'NOT_CONFIGURED',
+          httpStatus: 502,
+          message: '자동차 경로를 불러오지 못했습니다. NAVER_MAP_CLIENT_ID 및 NAVER_MAP_CLIENT_SECRET 서버 환경변수가 설정되지 않았습니다.',
+        },
+        { status: 502 }
+      );
+    }
+
+    // Case A: Waypoints leg-by-leg calculation
     if (waypoints && Array.isArray(waypoints) && waypoints.length >= 2) {
-      const segmentPromises: Promise<RouteSegment>[] = [];
+      const segmentResults: FetchSegmentResult[] = [];
 
       for (let i = 0; i < waypoints.length - 1; i++) {
-        segmentPromises.push(
-          fetchSegmentRoute(waypoints[i], waypoints[i + 1], ncpKeyId, ncpKeySecret)
+        const res = await fetchSegmentRoute(
+          waypoints[i],
+          waypoints[i + 1],
+          ncpKeyId,
+          ncpKeySecret,
+          allowFallback
+        );
+        segmentResults.push(res);
+      }
+
+      const failedResult = segmentResults.find((r) => !r.success);
+      if (failedResult && !failedResult.success) {
+        return NextResponse.json(
+          {
+            ok: false,
+            service: 'directions',
+            code: failedResult.code,
+            httpStatus: failedResult.httpStatus,
+            naverErrorCode: failedResult.naverErrorCode || null,
+            message: failedResult.message,
+          },
+          { status: 502 }
         );
       }
 
-      const routes = await Promise.all(segmentPromises);
-      return NextResponse.json({ routes });
+      const routes = segmentResults
+        .filter((r): r is Extract<FetchSegmentResult, { success: true }> => r.success)
+        .map((r) => r.segment);
+
+      const hasFallback = routes.some((r) => r.isFallback);
+
+      return NextResponse.json({
+        ok: true,
+        source: hasFallback ? 'fallback' : 'naver',
+        isFallback: hasFallback,
+        routes,
+      });
     }
 
-    // Case B: Received start and goal (Single pair)
+    // Case B: Single start and goal pair
     if (start && goal) {
-      const segment = await fetchSegmentRoute(start, goal, ncpKeyId, ncpKeySecret);
+      const result = await fetchSegmentRoute(start, goal, ncpKeyId, ncpKeySecret, allowFallback);
+
+      if (!result.success) {
+        return NextResponse.json(
+          {
+            ok: false,
+            service: 'directions',
+            code: result.code,
+            httpStatus: result.httpStatus,
+            naverErrorCode: result.naverErrorCode || null,
+            message: result.message,
+          },
+          { status: 502 }
+        );
+      }
+
       return NextResponse.json({
-        routes: [segment],
-        ...segment,
+        ok: true,
+        source: result.source,
+        isFallback: result.isFallback,
+        routes: [result.segment],
+        ...result.segment,
       });
     }
 
     return NextResponse.json(
-      { error: 'Valid waypoints array or start/goal coordinates required' },
+      { ok: false, service: 'directions', code: 'BAD_REQUEST', httpStatus: 400, message: '경로 계산을 위한 좌표가 유효하지 않습니다.' },
       { status: 400 }
     );
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    console.error('Directions API error:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message = error instanceof Error ? error.message : '서버 내부 오류가 발생했습니다.';
+    return NextResponse.json(
+      { ok: false, service: 'directions', code: 'SERVER_ERROR', httpStatus: 500, message },
+      { status: 500 }
+    );
   }
 }

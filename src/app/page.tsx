@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import NaverMap from '@/components/map/NaverMap';
 import MobileBottomSheet from '@/components/itinerary/MobileBottomSheet';
@@ -26,18 +26,22 @@ export default function HomePage() {
   const [planId, setPlanId] = useState<string | undefined>(undefined);
   const [authorName, setAuthorName] = useState<string | undefined>(undefined);
   const [activeDayIndex, setActiveDayIndex] = useState(0);
+
+  // Camera Focus Priority State
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [focusRequestId, setFocusRequestId] = useState<number>(0);
+  const [dayChangeKey, setDayChangeKey] = useState<number>(0);
 
   const [days, setDays] = useState<DayItinerary[]>([
-    {
-      day: 1,
-      blocks: [],
-    },
-    {
-      day: 2,
-      blocks: [],
-    },
+    { day: 1, blocks: [] },
+    { day: 2, blocks: [] },
   ]);
+
+  const [fetchedRoutes, setFetchedRoutes] = useState<RouteSegment[]>([]);
+  const [routeErrorMessage, setRouteErrorMessage] = useState<string | null>(null);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Read stored userName on client
   useEffect(() => {
@@ -69,17 +73,24 @@ export default function HomePage() {
   const activeDay = days[activeDayIndex] || { day: 1, blocks: [] };
   const currentBlocks = useMemo(() => activeDay.blocks || [], [activeDay.blocks]);
 
-  const [fetchedRoutes, setFetchedRoutes] = useState<RouteSegment[]>([]);
-
   const routes = useMemo(() => {
     if (currentBlocks.length < 2) return [];
     return fetchedRoutes;
   }, [currentBlocks.length, fetchedRoutes]);
 
+  // Fetch Directions with AbortController to cancel stale requests when day or itinerary changes
   useEffect(() => {
-    if (currentBlocks.length < 2) return;
+    if (currentBlocks.length < 2) {
+      return;
+    }
 
-    let isSubscribed = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     async function fetchRoutes() {
       try {
         const waypoints = currentBlocks.map((b) => ({
@@ -91,36 +102,80 @@ export default function HomePage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ waypoints }),
+          signal: controller.signal,
         });
 
         const data = await res.json();
-        if (isSubscribed && data.routes) {
+
+        if (controller.signal.aborted) return;
+
+        if (!res.ok || data.ok === false) {
+          console.warn('[Directions Route Error]:', data);
+          setRouteErrorMessage(data.message || '자동차 경로를 불러오지 못했습니다.');
+          if (data.routes && Array.isArray(data.routes)) {
+            setFetchedRoutes(data.routes);
+          } else {
+            setFetchedRoutes([]);
+          }
+
+          const hideTimer = setTimeout(() => setRouteErrorMessage(null), 5000);
+          return () => clearTimeout(hideTimer);
+        }
+
+        if (data.routes && Array.isArray(data.routes)) {
           setFetchedRoutes(data.routes);
+          if (data.isFallback) {
+            setRouteErrorMessage('자동차 경로를 불러오지 못해 직선거리만 표시합니다.');
+            const hideTimer = setTimeout(() => setRouteErrorMessage(null), 5000);
+            return () => clearTimeout(hideTimer);
+          } else {
+            setRouteErrorMessage(null);
+          }
         }
       } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
         console.error('Failed to fetch directions:', err);
+        setRouteErrorMessage('자동차 경로 요청 중 네트워크 오류가 발생했습니다.');
+        const hideTimer = setTimeout(() => setRouteErrorMessage(null), 5000);
+        return () => clearTimeout(hideTimer);
       }
     }
 
     fetchRoutes();
 
     return () => {
-      isSubscribed = false;
+      controller.abort();
     };
   }, [currentBlocks]);
 
   const handleSelectBlock = (block: ItineraryBlock) => {
     setSelectedPlace(block.place);
+    setSelectedBlockId(block.id);
+    setFocusRequestId((prev) => prev + 1);
+  };
+
+  const handleDayChange = (idx: number) => {
+    setActiveDayIndex(idx);
+    setSelectedPlace(null);
+    setSelectedBlockId(null);
+    setFetchedRoutes([]);
+    setDayChangeKey((prev) => prev + 1);
   };
 
   const handleLoadPlan = (plan: PlanData) => {
     setPlanTitle(plan.title || '불러온 여행 일정');
     setPlanId(plan.id);
     setAuthorName(plan.authorName || '익명');
+    setSelectedPlace(null);
+    setSelectedBlockId(null);
+    setFetchedRoutes([]);
     if (plan.days && plan.days.length > 0) {
       setDays(plan.days);
       setActiveDayIndex(0);
     }
+    setDayChangeKey((prev) => prev + 1);
   };
 
   const handleNewPlan = () => {
@@ -133,6 +188,13 @@ export default function HomePage() {
     ]);
     setActiveDayIndex(0);
     setSelectedPlace(null);
+    setSelectedBlockId(null);
+    setFetchedRoutes([]);
+    setDayChangeKey((prev) => prev + 1);
+  };
+
+  const handleDeleteCurrentActivePlan = () => {
+    handleNewPlan();
   };
 
   const commonProps = {
@@ -141,7 +203,7 @@ export default function HomePage() {
     days,
     setDays,
     activeDayIndex,
-    setActiveDayIndex,
+    setActiveDayIndex: handleDayChange,
     onSelectBlock: handleSelectBlock,
     routes,
     planId,
@@ -157,6 +219,8 @@ export default function HomePage() {
     },
     onLoadPlan: handleLoadPlan,
     onNewPlan: handleNewPlan,
+    onDeleteCurrentActivePlan: handleDeleteCurrentActivePlan,
+    routeErrorMessage,
   };
 
   return (
@@ -183,7 +247,11 @@ export default function HomePage() {
           blocks={currentBlocks}
           routes={routes}
           selectedPlace={selectedPlace}
+          selectedBlockId={selectedBlockId}
+          focusRequestId={focusRequestId}
+          dayChangeKey={dayChangeKey}
           onMarkerClick={handleSelectBlock}
+          routeErrorMessage={routeErrorMessage}
         />
       </section>
 

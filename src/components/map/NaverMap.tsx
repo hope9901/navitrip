@@ -1,27 +1,35 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Place, ItineraryBlock, RouteSegment } from '@/types/itinerary';
-import { Navigation, AlertTriangle } from 'lucide-react';
+import { Navigation, AlertTriangle, Maximize2, Info } from 'lucide-react';
 
 interface NaverMapProps {
   blocks: ItineraryBlock[];
   routes: RouteSegment[];
   selectedPlace?: Place | null;
+  selectedBlockId?: string | null;
+  focusRequestId?: number;
+  dayChangeKey?: string | number;
   clientId?: string;
   onMarkerClick?: (block: ItineraryBlock) => void;
+  routeErrorMessage?: string | null;
 }
 
 export default function NaverMap({
   blocks,
   routes,
   selectedPlace,
+  selectedBlockId,
+  focusRequestId,
+  dayChangeKey,
   clientId,
   onMarkerClick,
+  routeErrorMessage,
 }: NaverMapProps) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<naver.maps.Map | null>(null);
-  const markersRef = useRef<naver.maps.Marker[]>([]);
+  const markersRef = useRef<Map<string, naver.maps.Marker>>(new Map());
   const polylinesRef = useRef<naver.maps.Polyline[]>([]);
   const infoWindowRef = useRef<naver.maps.InfoWindow | null>(null);
 
@@ -32,8 +40,9 @@ export default function NaverMap({
     return false;
   });
   const [mapError, setMapError] = useState<string | null>(null);
+  const [coordWarning, setCoordWarning] = useState<string | null>(null);
 
-  // Load Naver Map Script dynamically with ncpKeyId
+  // Load Naver Map Script dynamically with NEXT_PUBLIC_NAVER_MAP_CLIENT_ID ONLY on client
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -44,12 +53,11 @@ export default function NaverMap({
     const ncpKeyId =
       clientId ||
       process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID ||
-      process.env.NAVER_MAP_CLIENT_ID ||
       '';
 
     if (!ncpKeyId || ncpKeyId.includes('your_')) {
       const timer = setTimeout(() => {
-        setMapError('네이버 Client ID가 .env.local에 설정되지 않았습니다.');
+        setMapError('네이버 Client ID가 NEXT_PUBLIC_NAVER_MAP_CLIENT_ID에 설정되지 않았습니다.');
       }, 0);
       return () => clearTimeout(timer);
     }
@@ -112,13 +120,40 @@ export default function NaverMap({
     }
   }, [isScriptLoaded]);
 
-  // Update Markers & Paths when blocks or routes change
+  // Fit bounds helper function (Priority 2 & 3)
+  const fitAllBounds = useCallback(() => {
+    if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+
+    const validBlocks = blocks.filter((b) => {
+      const lat = Number(b.place.lat);
+      const lng = Number(b.place.lng);
+      return Number.isFinite(lat) && lat >= 33 && lat <= 39 && Number.isFinite(lng) && lng >= 124 && lng <= 132;
+    });
+
+    if (validBlocks.length === 0) return;
+
+    const firstPos = new naver.maps.LatLng(validBlocks[0].place.lat, validBlocks[0].place.lng);
+    const bounds = new naver.maps.LatLngBounds(firstPos, firstPos);
+
+    validBlocks.forEach((b) => {
+      bounds.extend(new naver.maps.LatLng(b.place.lat, b.place.lng));
+    });
+
+    mapInstance.current.fitBounds(bounds, {
+      top: 60,
+      right: 60,
+      bottom: 60,
+      left: 60,
+    });
+  }, [blocks]);
+
+  // 1. Render Markers & Polylines (DOES NOT call fitBounds on route updates)
   useEffect(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
 
     try {
       markersRef.current.forEach((m) => m.setMap(null));
-      markersRef.current = [];
+      markersRef.current.clear();
 
       polylinesRef.current.forEach((p) => p.setMap(null));
       polylinesRef.current = [];
@@ -129,20 +164,8 @@ export default function NaverMap({
         return Number.isFinite(lat) && lat >= 33 && lat <= 39 && Number.isFinite(lng) && lng >= 124 && lng <= 132;
       });
 
-      if (validBlocks.length === 0) return;
-
-      const firstPosition = new naver.maps.LatLng(
-        validBlocks[0].place.lat,
-        validBlocks[0].place.lng
-      );
-      const bounds = new naver.maps.LatLngBounds(
-        firstPosition,
-        firstPosition
-      );
-
       validBlocks.forEach((block, idx) => {
         const position = new naver.maps.LatLng(block.place.lat, block.place.lng);
-        bounds.extend(position);
 
         const markerContent = `
           <div style="
@@ -201,18 +224,6 @@ export default function NaverMap({
                 <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #ffffff;">${block.place.title}</h4>
               </div>
               <p style="margin: 6px 0 0 0; font-size: 12px; color: #94a3b8;">${block.place.roadAddress || block.place.address}</p>
-              ${
-                block.place.link
-                  ? `<a href="${block.place.link}" target="_blank" style="
-                      display: inline-block;
-                      margin-top: 8px;
-                      font-size: 11px;
-                      color: #38bdf8;
-                      text-decoration: none;
-                      font-weight: 600;
-                    ">네이버 상세 정보 ↗</a>`
-                  : ''
-              }
             </div>
           `;
 
@@ -222,63 +233,126 @@ export default function NaverMap({
           }
         });
 
-        markersRef.current.push(marker);
+        markersRef.current.set(block.id, marker);
       });
 
+      // Polylines rendering
       routes.forEach((route) => {
         if (route.path && route.path.length > 0) {
           const linePath = route.path.map(([lat, lng]) => new naver.maps.LatLng(lat, lng));
+          const isFallback = route.isFallback || route.source === 'fallback';
+
           const polyline = new naver.maps.Polyline({
             map: mapInstance.current!,
             path: linePath,
-            strokeColor: '#10b981',
-            strokeWeight: 5,
-            strokeOpacity: 0.8,
-            strokeStyle: 'solid',
+            strokeColor: isFallback ? '#94a3b8' : '#10b981',
+            strokeWeight: isFallback ? 4 : 5,
+            strokeOpacity: isFallback ? 0.6 : 0.85,
+            strokeStyle: isFallback ? 'dash' : 'solid',
           });
           polylinesRef.current.push(polyline);
         }
       });
-
-      if (validBlocks.length > 0) {
-        mapInstance.current.fitBounds(bounds, {
-          top: 60,
-          right: 60,
-          bottom: 60,
-          left: 60,
-        });
-      }
     } catch (e: unknown) {
       console.error('Error rendering markers or routes:', e);
     }
   }, [blocks, routes, onMarkerClick]);
 
-  // Center map smoothly when selectedPlace changes
+  // Priority 3: Initial plan load or Day change (fitBounds EXACTLY ONCE)
   useEffect(() => {
-    if (!mapInstance.current || !selectedPlace || typeof naver === 'undefined' || !naver.maps) return;
-    try {
-      const lat = Number(selectedPlace.lat);
-      const lng = Number(selectedPlace.lng);
+    if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+    fitAllBounds();
+  }, [dayChangeKey, fitAllBounds]);
 
-      const isValidLat = Number.isFinite(lat) && lat >= 33 && lat <= 39;
-      const isValidLng = Number.isFinite(lng) && lng >= 124 && lng <= 132;
+  // Priority 1: Focus selected block on selectedBlockId & focusRequestId change
+  useEffect(() => {
+    if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+    if (!selectedPlace && !selectedBlockId) return;
 
-      if (!isValidLat || !isValidLng) {
-        console.warn('[NaverMap] Refusing to pan to invalid coordinates:', selectedPlace);
-        return;
-      }
+    const targetPlace = selectedPlace || blocks.find((b) => b.id === selectedBlockId)?.place;
+    if (!targetPlace) return;
 
-      const targetPos = new naver.maps.LatLng(lat, lng);
-      mapInstance.current.panTo(targetPos, {});
-      mapInstance.current.setZoom(15, true);
-    } catch (e: unknown) {
-      console.error('Error panning to place:', e);
+    const lat = Number(targetPlace.lat);
+    const lng = Number(targetPlace.lng);
+
+    const isValidLat = Number.isFinite(lat) && lat >= 33 && lat <= 39;
+    const isValidLng = Number.isFinite(lng) && lng >= 124 && lng <= 132;
+
+    if (!isValidLat || !isValidLng) {
+      const warningMsg = `'${targetPlace.title}' 장소의 위경도가 올바르지 않아 지도를 이동할 수 없습니다. (lat: ${lat}, lng: ${lng})`;
+      console.warn('[NaverMap]', warningMsg);
+      const timer = setTimeout(() => {
+        setCoordWarning(warningMsg);
+      }, 0);
+      const hideTimer = setTimeout(() => setCoordWarning(null), 4000);
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(hideTimer);
+      };
     }
-  }, [selectedPlace]);
+
+    const targetPos = new naver.maps.LatLng(lat, lng);
+    mapInstance.current.panTo(targetPos, {});
+    mapInstance.current.setZoom(15, true);
+
+    // Open info window if matching marker exists
+    const blockId = selectedBlockId || blocks.find((b) => b.place.lat === targetPlace.lat && b.place.lng === targetPlace.lng)?.id;
+    if (blockId && markersRef.current.has(blockId)) {
+      const marker = markersRef.current.get(blockId)!;
+      const idx = blocks.findIndex((b) => b.id === blockId);
+      const infoContent = `
+        <div style="
+          padding: 12px 16px;
+          background: rgba(15, 23, 42, 0.95);
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 12px;
+          color: #f8fafc;
+          min-width: 200px;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+          font-family: sans-serif;
+        ">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <span style="
+              background: #10b981;
+              color: white;
+              font-size: 11px;
+              font-weight: bold;
+              padding: 2px 6px;
+              border-radius: 4px;
+            ">#${idx + 1}</span>
+            <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: #ffffff;">${targetPlace.title}</h4>
+          </div>
+          <p style="margin: 6px 0 0 0; font-size: 12px; color: #94a3b8;">${targetPlace.roadAddress || targetPlace.address}</p>
+        </div>
+      `;
+      if (infoWindowRef.current) {
+        infoWindowRef.current.setContent(infoContent);
+        infoWindowRef.current.open(mapInstance.current!, marker);
+      }
+    }
+  }, [focusRequestId, selectedBlockId, selectedPlace, blocks]);
+
+  const totalDistanceMeter = routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
+  const totalDurationSeconds = routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+  const hasFallbackRoute = routes.some((r) => r.isFallback || r.source === 'fallback');
 
   return (
     <div className="relative w-full h-full min-h-[350px] bg-slate-900 overflow-hidden">
       <div ref={mapElement} className="w-full h-full" />
+
+      {/* Manual "Fit All Bounds" Camera Control Button */}
+      {blocks.length > 0 && isScriptLoaded && !mapError && (
+        <button
+          type="button"
+          onClick={fitAllBounds}
+          className="absolute top-4 left-4 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold shadow-xl z-20 flex items-center gap-1.5 transition-all active:scale-95"
+          title="전체 일정 장소 지도에 한눈에 보기"
+        >
+          <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+          <span>전체 보기</span>
+        </button>
+      )}
 
       {!isScriptLoaded && !mapError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm z-10 text-white">
@@ -287,41 +361,55 @@ export default function NaverMap({
         </div>
       )}
 
+      {/* Map Auth Error Banner */}
       {mapError && (
         <div className="absolute top-4 left-4 right-4 bg-slate-900/95 border border-rose-500/50 backdrop-blur-md text-rose-200 text-xs p-4 rounded-2xl z-20 flex items-start gap-3 shadow-2xl">
           <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
           <div className="flex flex-col gap-1">
             <h4 className="font-bold text-rose-300 text-sm">네이버 지도 인증 실패</h4>
             <p className="text-slate-300 leading-relaxed">{mapError}</p>
-            <div className="mt-2 text-[11px] text-slate-400 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 space-y-1">
-              <p className="font-semibold text-emerald-400">💡 해결 방법 (Naver Cloud 콘솔):</p>
-              <p>1. <b>AI·NAVER API ➔ Application 수정</b> 메뉴로 이동합니다.</p>
-              <p>2. <b>Web 서비스 URL</b>에 본인의 Vercel 도메인(예: <code>https://your-app.vercel.app</code>) 및 <code>http://localhost:3000</code>을 추가합니다.</p>
-              <p>3. 선택 서비스에서 <b>Web Dynamic Map</b> 항목이 체크되어 있는지 확인합니다.</p>
-            </div>
           </div>
         </div>
       )}
 
+      {/* Coordinate Warning Alert Banner */}
+      {coordWarning && (
+        <div className="absolute top-16 left-4 right-4 bg-amber-500/10 border border-amber-500/40 backdrop-blur-md text-amber-200 text-xs p-3 rounded-xl z-20 flex items-center gap-2 shadow-xl animate-fadeIn">
+          <Info className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>{coordWarning}</span>
+        </div>
+      )}
+
+      {/* Driving Route Failure / Fallback Notice */}
+      {(hasFallbackRoute || routeErrorMessage) && !mapError && (
+        <div className="absolute top-4 right-14 bg-slate-900/90 border border-slate-700 backdrop-blur-md text-slate-300 text-xs px-3 py-2 rounded-xl z-20 flex items-center gap-2 shadow-lg">
+          <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />
+          <span>{routeErrorMessage || '자동차 경로를 불러오지 못해 직선거리만 표시합니다.'}</span>
+        </div>
+      )}
+
+      {/* Route Distance & Duration Summary Badge (FIXED: Uses totalDistanceMeter for <1km display!) */}
       {blocks.length > 1 && routes.length > 0 && !mapError && (
         <div className="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white px-4 py-2.5 rounded-2xl shadow-xl z-10 flex items-center gap-3">
           <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
             <Navigation className="w-4 h-4" />
           </div>
           <div>
-            <div className="text-[11px] font-medium text-slate-400">총 자동차 이동 거리/시간</div>
+            <div className="text-[11px] font-medium text-slate-400">
+              {hasFallbackRoute ? '총 예상 이동 거리/시간 (직선거리)' : '총 자동차 이동 거리/시간'}
+            </div>
             <div className="text-xs font-bold text-slate-100 flex items-center gap-2">
               <span>
-                {routes.reduce((acc, r) => acc + r.distanceMeter, 0) >= 1000
-                  ? `${(routes.reduce((acc, r) => acc + r.distanceMeter, 0) / 1000).toFixed(1)}km`
-                  : `${routes.reduce((acc, r) => acc + r.durationSeconds, 0)}m`}
+                {totalDistanceMeter >= 1000
+                  ? `${(totalDistanceMeter / 1000).toFixed(1)}km`
+                  : `${totalDistanceMeter}m`}
               </span>
               <span className="text-slate-500">•</span>
               <span className="text-emerald-400">
-                {Math.floor(routes.reduce((acc, r) => acc + r.durationSeconds, 0) / 3600) > 0
-                  ? `${Math.floor(routes.reduce((acc, r) => acc + r.durationSeconds, 0) / 3600)}시간 `
+                {Math.floor(totalDurationSeconds / 3600) > 0
+                  ? `${Math.floor(totalDurationSeconds / 3600)}시간 `
                   : ''}
-                {Math.ceil((routes.reduce((acc, r) => acc + r.durationSeconds, 0) % 3600) / 60)}분
+                {Math.ceil((totalDurationSeconds % 3600) / 60)}분
               </span>
             </div>
           </div>
