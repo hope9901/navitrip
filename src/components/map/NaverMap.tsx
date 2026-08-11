@@ -57,9 +57,13 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
   const [mapError, setMapError] = useState<string | null>(null);
   const [coordWarning, setCoordWarning] = useState<string | null>(null);
 
-  // Fit bounds helper function (Priority 2 & 3)
+  // Fit bounds helper function (Priority 2 & 3) - Closes InfoWindow when "전체 보기" is triggered
   const fitAllBounds = useCallback(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+
+    if (infoWindowRef.current) {
+      infoWindowRef.current.close();
+    }
 
     const validBlocks = blocksRef.current.filter((b) => {
       const lat = Number(b.place.lat);
@@ -344,6 +348,13 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         borderWidth: 0,
         backgroundColor: 'transparent',
         disableAnchor: false,
+      });
+
+      // Auto-close InfoWindow when user zooms out past threshold (zoom <= 12)
+      naver.maps.Event.addListener(mapInstance.current, 'zoom_changed', (zoom: number) => {
+        if (zoom <= 12 && infoWindowRef.current) {
+          infoWindowRef.current.close();
+        }
       });
 
       if (onMapReadyChange) {
