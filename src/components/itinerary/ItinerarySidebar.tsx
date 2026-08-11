@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView } from '@/types/itinerary';
+import { createRouteSignature } from '@/lib/routeSignature';
 import SortableBlockItem from './SortableBlockItem';
 import PlaceSearchCard from '../search/PlaceSearchCard';
 import {
@@ -287,6 +288,33 @@ export default function ItinerarySidebar({
     return true;
   };
 
+  const prepareDaysWithSavedRoutes = (): DayItinerary[] => {
+    return days.map((d, idx) => {
+      if (idx === activeDayIndex && routes && routes.length > 0) {
+        const waypoints = (d.blocks || []).map((b) => ({ lat: b.place.lat, lng: b.place.lng }));
+        if (waypoints.length >= 2) {
+          const totalDist = routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
+          const totalDur = routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+          const routeSig = createRouteSignature({ waypoints, option: 'trafast', mode: 'driving', version: 1 });
+
+          return {
+            ...d,
+            savedRoute: {
+              routeSignature: routeSig,
+              distanceMeter: totalDist,
+              durationSeconds: totalDur,
+              calculatedAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+              source: 'saved' as const,
+              segments: routes,
+            },
+          };
+        }
+      }
+      return d;
+    });
+  };
+
   const handleSaveOnly = async () => {
     if (!validateTitle()) return;
 
@@ -296,13 +324,14 @@ export default function ItinerarySidebar({
       const targetPlanId = isOtherAuthor ? undefined : planId;
       const targetTitle = planTitle.trim();
       const currentMapView = onRequestMapView ? onRequestMapView() || undefined : undefined;
+      const daysToSave = prepareDaysWithSavedRoutes();
 
       const planData: PlanData = {
         id: targetPlanId,
         title: targetTitle,
         authorName: userName,
         mapView: currentMapView,
-        days,
+        days: daysToSave,
       };
 
       const result = await savePlanToDB(planData);
@@ -340,13 +369,14 @@ export default function ItinerarySidebar({
       const targetPlanId = isOtherAuthor ? undefined : planId;
       const targetTitle = planTitle.trim();
       const currentMapView = onRequestMapView ? onRequestMapView() || undefined : undefined;
+      const daysToSave = prepareDaysWithSavedRoutes();
 
       const planData: PlanData = {
         id: targetPlanId,
         title: targetTitle,
         authorName: userName,
         mapView: currentMapView,
-        days,
+        days: daysToSave,
       };
 
       const result = await savePlanToDB(planData);

@@ -33,12 +33,26 @@ export interface RouteSegment {
   formattedDuration: string;
   path?: Array<[number, number]>; // [lat, lng]
   isFallback?: boolean;
-  source?: 'naver' | 'fallback';
+  source?: 'live' | 'cache' | 'saved' | 'stale-cache' | 'naver' | 'fallback';
+  cacheKey?: string;
+  calculatedAt?: string;
+  expiresAt?: string;
 }
+
+export type SavedRouteSummary = {
+  routeSignature: string;
+  distanceMeter: number;
+  durationSeconds: number;
+  calculatedAt: string;
+  expiresAt: string;
+  source?: 'live' | 'cache' | 'saved' | 'stale-cache' | 'fallback';
+  segments: RouteSegment[];
+};
 
 export interface DayItinerary {
   day: number;
   blocks: ItineraryBlock[];
+  savedRoute?: SavedRouteSummary;
 }
 
 export type SavedMapView = {

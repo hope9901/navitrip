@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ItineraryBlock, DayItinerary, RouteSegment } from '@/types/itinerary';
+import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView } from '@/types/itinerary';
 import ItinerarySidebar from './ItinerarySidebar';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 
@@ -15,7 +15,15 @@ interface MobileBottomSheetProps {
   onSelectBlock: (block: ItineraryBlock) => void;
   routes: RouteSegment[];
   planId?: string;
+  authorName?: string;
+  userName?: string;
+  onChangeUserName?: () => void;
   onPlanSaved?: (newId: string) => void;
+  onLoadPlan?: (plan: PlanData) => void;
+  onNewPlan?: () => void;
+  onDeleteCurrentActivePlan?: () => void;
+  onRequestMapView?: () => SavedMapView | null;
+  onSelectSearchPlace?: (place: Place) => void;
 }
 
 export default function MobileBottomSheet(props: MobileBottomSheetProps) {

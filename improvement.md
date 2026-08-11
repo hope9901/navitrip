@@ -176,3 +176,25 @@
 ### 3. 해결 대책 (Fix)
 - `fitAllBounds` 함수 호출 시 `infoWindowRef.current?.close()`를 명시적으로 실행.
 - Naver Maps `zoom_changed` 이벤트 리스너를 등록하여 사용자가 축소(zoom 레벨 <= 12)할 시 열려 있는 마커 인포윈도우를 자동으로 닫도록 구현.
+
+---
+
+## 이슈 22: Naver Cloud Driving API 불필요 중복 호출 차단 및 Supabase 영속 캐시·구간별 캐싱·routeSignature·수동 새로고침 구축
+
+### 1. 지적 및 문제점
+- **지적 내용**:
+  1. Day 변경, 일정 재오픈, 공유 링크 접속, 새로고침, 마커/블록 클릭 등 UI 조작 시 장소가 변경되지 않았음에도 Naver Driving API가 불필요하게 반복 호출되어 쿼터가 낭비되는 문제.
+
+### 2. 원인 분석 (Root Cause)
+- 장소 좌표 및 순서에 근거한 결정론적 경로 서명(`routeSignature`) 부재.
+- 구간별(Leg-by-Leg) 부분 캐싱 미적용으로 인해 일부 장소 변경 시 전체 경로를 재요청함.
+- Vercel 서버리스 인스턴스 메모리 휘발성으로 인해 영속 서버 캐시 DB 부재.
+- 저장/공유 일정 데이터 내에 계산 결과 요약(`savedRoute`) 미보존.
+
+### 3. 해결 대책 (Fix)
+- **`routeSignature` & 5자리 정규화**: `src/lib/routeSignature.ts` 신설. 소수점 5자리 정규화 좌표, 경유지 순서, 옵션(`trafast`), 버전(`1`)을 조합한 클라이언트/서버 공통 해시 서명 생성.
+- **구간별(Leg-by-Leg) 캐싱**: `A → B → C` 경로에서 `D` 추가 시 `A → B` 및 `B → C` 구간 캐시는 재사용하고 신규 `C → D` 구간만 API 호출.
+- **Supabase 영속 캐시 (`route_cache` 테이블)**: `supabase/migrations/20260811_route_cache.sql` 마이그레이션 SQL 작성 및 `/api/directions/route.ts` 서버 라우트에서 `SUPABASE_SERVICE_ROLE_KEY` 기반 24시간 TTL 자동 영속 관리.
+- **저장/공유 일정 경로 보존 (`savedRoute`)**: `DayItinerary` 내 `savedRoute` 요약을 보존하여 저장/공유 일정 재오픈 시 **외부 API 호출 0회** (`source: "saved"`).
+- **800ms 디바운스 & activeDay 전용 계산**: 현재 활성화된 Day만 연산하며, 연속 장소 변경 시 800ms 디바운스 및 `AbortController` 적용.
+- **수동 "예상 시간 새로고침" 버튼**: `NaverMap.tsx`에 새로고침 버튼 및 상태 라벨(`저장된 예상 경로`, `최신 예상 경로`, `서버 캐시 예상 경로`, `이전 계산 결과`, `마지막 계산: HH:mm`) 제공. 60초 쿨다운 적용.

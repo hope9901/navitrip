@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { Place, ItineraryBlock, RouteSegment, SavedMapView, MapFocusRequest } from '@/types/itinerary';
 import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
-import { Navigation, AlertTriangle, Maximize2, Info } from 'lucide-react';
+import { Navigation, AlertTriangle, Maximize2, Info, RefreshCw, Clock } from 'lucide-react';
 
 export interface NaverMapRefHandle {
   getMapView: () => SavedMapView | null;
@@ -21,6 +21,11 @@ interface NaverMapProps {
   clientId?: string;
   onMarkerClick?: (block: ItineraryBlock) => void;
   routeErrorMessage?: string | null;
+  routeSource?: 'live' | 'cache' | 'saved' | 'stale-cache' | 'fallback' | null;
+  calculatedAt?: string | null;
+  onForceRefreshRoute?: () => void;
+  isRefreshingRoute?: boolean;
+  refreshCooldownSeconds?: number;
   isMapReady?: boolean;
   onMapReadyChange?: (ready: boolean) => void;
 }
@@ -35,6 +40,11 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     clientId,
     onMarkerClick,
     routeErrorMessage,
+    routeSource,
+    calculatedAt,
+    onForceRefreshRoute,
+    isRefreshingRoute = false,
+    refreshCooldownSeconds = 0,
     onMapReadyChange,
   },
   ref
@@ -223,7 +233,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     [fitAllBounds]
   );
 
-  // Execute Focus Request helper - STABLE REFERENCE (uses blocksRef to prevent marker effect re-trigger)
+  // Execute Focus Request helper - STABLE REFERENCE
   const executeFocusRequest = useCallback(
     (req: MapFocusRequest) => {
       if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
@@ -244,11 +254,9 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
       const targetPos = new naver.maps.LatLng(lat, lng);
 
-      // Use setCenter + setZoom directly to guarantee instant center positioning without panTo animation collisions
       mapInstance.current.setCenter(targetPos);
       mapInstance.current.setZoom(15);
 
-      // Open InfoWindow if matching marker exists or construct temporary InfoWindow
       const currentBlocks = blocksRef.current;
       const matchingBlock = currentBlocks.find(
         (b) => b.id === req.blockId || b.place.id === req.placeId || (Math.abs(b.place.lat - lat) < 0.0001 && Math.abs(b.place.lng - lng) < 0.0001)
@@ -361,7 +369,6 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         onMapReadyChange(true);
       }
 
-      // Apply initial view or pending focus request
       applyInitialViewport(initialMapView);
 
       if (pendingFocusRequestRef.current) {
@@ -378,7 +385,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     }
   }, [isScriptLoaded, initialMapView, applyInitialViewport, executeFocusRequest, onMapReadyChange]);
 
-  // ResizeObserver for Map DOM element resizing (sidebar toggle)
+  // ResizeObserver for Map DOM element resizing
   useEffect(() => {
     if (!mapElement.current) return;
     const observer = new ResizeObserver(() => {
@@ -394,7 +401,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     return () => observer.disconnect();
   }, []);
 
-  // Render Markers & Polylines (DOES NOT call fitBounds or camera moves)
+  // Render Markers & Polylines
   useEffect(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
 
@@ -492,7 +499,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     }
   }, [dayChangeKey, fitAllBounds]);
 
-  // Priority 1: Focus Request (triggers setCenter at zoom 15 + infoWindow)
+  // Priority 1: Focus Request
   useEffect(() => {
     if (!focusRequest) return;
 
@@ -505,7 +512,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
   }, [focusRequest, executeFocusRequest]);
 
   // Driving Distance & Duration Calculation Rules (Only sum Naver API driving routes, exclude fallbacks)
-  const drivingSegments = routes.filter((r) => !r.isFallback && r.source === 'naver');
+  const drivingSegments = routes.filter((r) => !r.isFallback && (r.source === 'live' || r.source === 'cache' || r.source === 'saved' || r.source === 'naver'));
   const hasDrivingRoutes = drivingSegments.length > 0;
   const hasFallbackRoute = routes.some((r) => r.isFallback || r.source === 'fallback');
 
@@ -522,6 +529,19 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     totalDrivingMins < 60
       ? `${totalDrivingMins}분`
       : `${Math.floor(totalDrivingMins / 60)}시간 ${totalDrivingMins % 60}분`;
+
+  // Status Badge Label based on routeSource
+  const getSourceBadgeLabel = () => {
+    if (!routeSource || routeSource === 'live') return '최신 예상 경로';
+    if (routeSource === 'saved') return '저장된 예상 경로';
+    if (routeSource === 'cache') return '서버 캐시 예상 경로';
+    if (routeSource === 'stale-cache') return '이전 계산 결과';
+    return '예상 경로';
+  };
+
+  const formattedCalcTime = calculatedAt
+    ? new Date(calculatedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    : null;
 
   return (
     <div className="relative w-full h-full min-h-[350px] bg-slate-900 overflow-hidden">
@@ -574,17 +594,48 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         </div>
       )}
 
-      {/* Route Distance & Duration Summary Badge */}
+      {/* Route Distance & Duration Summary Badge with Force Refresh Button & Cache Metadata */}
       {blocks.length > 1 && !mapError && (
-        <div className="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white px-4 py-3 rounded-2xl shadow-xl z-10 flex flex-col gap-1.5 max-w-xs">
+        <div className="absolute bottom-6 right-6 bg-slate-900/95 backdrop-blur-md border border-slate-700/70 text-white px-4 py-3 rounded-2xl shadow-xl z-10 flex flex-col gap-2 max-w-xs border-l-4 border-l-emerald-500">
+          <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                {getSourceBadgeLabel()}
+              </span>
+              {formattedCalcTime && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-slate-500" />
+                  <span>{formattedCalcTime}</span>
+                </span>
+              )}
+            </div>
+
+            {onForceRefreshRoute && (
+              <button
+                type="button"
+                onClick={onForceRefreshRoute}
+                disabled={isRefreshingRoute || refreshCooldownSeconds > 0}
+                className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-emerald-400 hover:text-emerald-300 rounded-lg text-[10px] font-semibold transition-all border border-slate-700/60 active:scale-95"
+                title="현재 Day의 자동차 예상 시간 실시간 재계산"
+              >
+                <RefreshCw className={`w-3 h-3 ${isRefreshingRoute ? 'animate-spin' : ''}`} />
+                <span>
+                  {isRefreshingRoute
+                    ? '계산중...'
+                    : refreshCooldownSeconds > 0
+                    ? `${refreshCooldownSeconds}초`
+                    : '예상 시간 새로고침'}
+                </span>
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+            <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl shrink-0">
               <Navigation className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-[11px] font-medium text-slate-400">
-                {hasDrivingRoutes ? '예상 자동차 이동 거리/시간' : '자동차 이동 경로 안내'}
-              </div>
+              <div className="text-[11px] font-medium text-slate-400">예상 자동차 이동 거리/시간</div>
               <div className="text-xs font-bold text-slate-100 flex items-center gap-2 mt-0.5">
                 {hasDrivingRoutes ? (
                   <>
