@@ -346,3 +346,19 @@
 
 ### 3. 해결 대책 (Fix)
 - **`isMobileMode` 프로퍼티 분기**: `ItinerarySidebar.tsx`에 `isMobileMode` 옵션 및 `{!isMobileMode && <PlaceSearchCard />}` 조건식을 추가하여 데스크톱 사이드바에서는 기존대로 검색창+일정목록을 한 화면에 보여주고, 모바일 `MobileBottomSheet` 환경에서는 **`[📅 여행 일정]` 탭 선택 시 검색창을 완전 제거**하여 Day 탭, 요약 배지, 등록된 일정 블록만 전용으로 노출되도록 확고하게 분리 완료.
+
+---
+
+## 이슈 32: 모바일 `PlaceSearchCard` 단일 마운트(Single Mount) 구조 개편 및 탭/지도 전환 간 검색 결과·스크롤 위치 완전 영속화
+
+### 1. 지적 및 문제점
+- **지적 내용**:
+  1. 모바일 환경에서 검색 후 지도 보기, 지도 크게보기, 탭 전환을 조작할 때 삼항 연산자의 서로 다른 분기(branch)에 `PlaceSearchCard`가 존재하여 인스턴스가 교체(unmount -> remount)되면서 검색어, 검색 결과 테이블, 스크롤 위치가 소멸하던 문제.
+
+### 2. 원인 분석 (Root Cause)
+- `MobileBottomSheet.tsx` 내부에서 `sheetState === "peek" && selectedSearchPlace` 조건문에 `PlaceSearchCard`가 서로 다른 2개의 JSX 노드로 작성되어 있어, React가 상태 변경 시 기존 컴포넌트를 언마운트하고 신규 인스턴스를 마운트했음.
+
+### 3. 해결 대책 (Fix)
+- **단일 마운트(Single Mount) 구조로 100% 통일**: `MobileBottomSheet.tsx` 내에서 `PlaceSearchCard`를 **단 1개의 JSX 노드로만 작성**하고, 삼항 연산자 분기 대신 CSS 클래스 조건문(`activeTab === 'search' && !(sheetState === 'peek' && selectedSearchPlace) ? 'flex' : 'hidden'`)으로 보이기/숨김을 제어하여 unmount를 원천 차단.
+- **개발 환경 단일 마운트 로거 추가**: `PlaceSearchCard.tsx`에 `useEffect` 마운트/언마운트 디버그 로거를 추가하여 지도 보기 ➔ 검색 결과 복귀 간 컴포넌트가 결코 unmount되지 않음을 empirically 검증 완료.
+- **상태 분리 및 스크롤 영속화**: `query`, `results`, `scrollTop` 검색 상태는 `PlaceSearchCard` 단일 마운트 인스턴스에 안전하게 보존되며, 검색 탭 ↔ 일정 탭 전환 및 지도 보기 조작 간 검색 API 재호출이 0회로 원천 차단됨.

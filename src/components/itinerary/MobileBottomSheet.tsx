@@ -177,41 +177,32 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
 
       {/* Content Area */}
       <div className="flex-1 overflow-hidden flex flex-col bg-slate-950 relative">
-        {/* Search Tab Panel (Permanently mounted to preserve search query & result table) */}
+        {/* Search Tab Panel (SINGLE MOUNT PlaceSearchCard to preserve query & results permanently) */}
         <div
-          className={`flex-1 flex-col min-h-0 overflow-hidden ${
-            activeTab === 'search' ? 'flex' : 'hidden'
+          className={`flex-1 flex-col min-h-0 overflow-y-auto p-3.5 ${
+            activeTab === 'search' && !(sheetState === 'peek' && props.selectedSearchPlace)
+              ? 'flex'
+              : 'hidden'
           }`}
         >
-          {sheetState === 'peek' && props.selectedSearchPlace ? (
-            <>
-              <SearchPlacePreviewCard
-                place={props.selectedSearchPlace}
-                onAddPlace={handleAddPlace}
-                isAlreadyAdded={currentDayPlaceIds.includes(props.selectedSearchPlace.id)}
-                onReturnToSearch={handleReturnToSearchResults}
-                onClose={props.onClearSelectedSearchPlace}
-              />
-              <div className="hidden">
-                <PlaceSearchCard
-                  onAddPlace={handleAddPlace}
-                  onSelectPlace={handleSelectSearchPlaceOnMobile}
-                  addedPlaceIds={currentDayPlaceIds}
-                  containerMode="mobile-sheet"
-                />
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 p-3.5 flex flex-col min-h-0 overflow-y-auto">
-              <PlaceSearchCard
-                onAddPlace={handleAddPlace}
-                onSelectPlace={handleSelectSearchPlaceOnMobile}
-                addedPlaceIds={currentDayPlaceIds}
-                containerMode="mobile-sheet"
-              />
-            </div>
-          )}
+          <PlaceSearchCard
+            onAddPlace={handleAddPlace}
+            onSelectPlace={handleSelectSearchPlaceOnMobile}
+            addedPlaceIds={currentDayPlaceIds}
+            containerMode="mobile-sheet"
+          />
         </div>
+
+        {/* Selected Search Place Preview Card (Shown in peek mode when a search place is active) */}
+        {activeTab === 'search' && sheetState === 'peek' && props.selectedSearchPlace && (
+          <SearchPlacePreviewCard
+            place={props.selectedSearchPlace}
+            onAddPlace={handleAddPlace}
+            isAlreadyAdded={currentDayPlaceIds.includes(props.selectedSearchPlace.id)}
+            onReturnToSearch={handleReturnToSearchResults}
+            onClose={props.onClearSelectedSearchPlace}
+          />
+        )}
 
         {/* Itinerary Tab Panel */}
         <div

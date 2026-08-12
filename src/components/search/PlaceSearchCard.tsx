@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useId } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import { Place } from '@/types/itinerary';
 import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
 import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, AlertCircle, X, Navigation, Check } from 'lucide-react';
@@ -25,6 +25,17 @@ export default function PlaceSearchCard({
   const [hasSearched, setHasSearched] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('[PlaceSearchCard] mounted (mode:', containerMode, ')');
+    }
+    return () => {
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[PlaceSearchCard] unmounted (mode:', containerMode, ')');
+      }
+    };
+  }, [containerMode]);
 
   const resetSearch = () => {
     setQuery('');
