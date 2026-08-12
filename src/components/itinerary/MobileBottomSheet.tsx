@@ -219,7 +219,11 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
             activeTab === 'itinerary' ? 'block' : 'hidden'
           }`}
         >
-          <ItinerarySidebar {...props} onSelectSearchPlace={handleSelectSearchPlaceOnMobile} />
+          <ItinerarySidebar
+            {...props}
+            onSelectSearchPlace={handleSelectSearchPlaceOnMobile}
+            isMobileMode={true}
+          />
         </div>
       </div>
     </div>

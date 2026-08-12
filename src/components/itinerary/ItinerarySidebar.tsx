@@ -67,6 +67,7 @@ interface ItinerarySidebarProps {
   onDeleteCurrentActivePlan?: () => void;
   onRequestMapView?: () => SavedMapView | null;
   onSelectSearchPlace?: (place: Place) => void;
+  isMobileMode?: boolean;
 }
 
 const emptySubscribe = () => () => {};
@@ -97,6 +98,7 @@ export default function ItinerarySidebar({
   onDeleteCurrentActivePlan,
   onRequestMapView,
   onSelectSearchPlace,
+  isMobileMode = false,
 }: ItinerarySidebarProps) {
   const isMounted = useIsMounted();
   const titleInputId = useId();
@@ -612,14 +614,16 @@ export default function ItinerarySidebar({
         </button>
       </div>
 
-      {/* Place Search Card Component */}
-      <div className="shrink-0">
-        <PlaceSearchCard
-          onAddPlace={handleAddPlace}
-          onSelectPlace={onSelectSearchPlace}
-          addedPlaceIds={blocks.map((b) => b.place.id)}
-        />
-      </div>
+      {/* Place Search Card Component - Desktop only (Hidden on Mobile BottomSheet to clearly separate Search vs Itinerary tabs) */}
+      {!isMobileMode && (
+        <div className="shrink-0">
+          <PlaceSearchCard
+            onAddPlace={handleAddPlace}
+            onSelectPlace={onSelectSearchPlace}
+            addedPlaceIds={blocks.map((b) => b.place.id)}
+          />
+        </div>
+      )}
 
       {/* Day Summary Badge */}
       {blocks.length > 0 && (
