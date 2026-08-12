@@ -406,7 +406,7 @@ export default function ItinerarySidebar({
   } else if (!loadedPlanIdentity || !planId) {
     saveButtonLabel = '새 일정 저장';
   } else {
-    saveButtonLabel = '변경사항 저장';
+    saveButtonLabel = '저장';
   }
 
   return (
