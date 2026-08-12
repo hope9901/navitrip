@@ -286,8 +286,20 @@
 ### 2. 원인 분석 (Root Cause)
 - `MobileBottomSheet.tsx`에서 `sheetState === 'peek' && props.selectedSearchPlace`가 참일 경우 `SearchPlacePreviewCard`가 렌더링되면서 사용자가 현재 `itinerary` (일정) 탭에 있더라도 `ItinerarySidebar` (일정 목록) 렌더링을 완전히 덮어써 버리는 논리 오류가 있었음.
 - `handleAddPlaceFromSearch` 실행 시 `selectedSearchPlace`가 초기화(clear)되지 않아 검색 장소 선택 상태가 유지된 채 `peek` 상태로 진입 시 추가된 일차가 아닌 이전 검색 미리보기 카드가 강제로 렌더링됨.
-- `handleAddPlaceFromSearch` 내부에서 신규 일차 생성 시 `dayIndex` 필드 대신 `day: activeDayIndex + 1` 객체 속성을 안전하게 포함하지 않아 `DayItinerary` 타입 구조 손상 가능성이 있었음.
 
 ### 3. 해결 대책 (Fix)
 - **`MobileBottomSheet` 렌더링 계층 수정**: `activeTab === 'itinerary'`일 때는 `SearchPlacePreviewCard`가 일정 목록을 덮어쓰지 않고 항상 `ItinerarySidebar`가 렌더링되도록 수정. `[📅 일정]` 탭 클릭 시 `selectedSearchPlace` 자동 초기화.
-- **`handleAddPlaceFromSearch` 개선**: 장소 추가 시 `selectedSearchPlace = null`로 초기화하고, 새로 추가된 일정 블록의 ID(`createdBlockId`)를 `selectedBlockId`에 등록하여 지도상에 신규 일정 마커 포커스(`focusRequest`)를 바로 갱신하도록 처리. `day` 객체 속성 보장.
+- **`handleAddPlaceFromSearch` 개선**: 장소 추가 시 `selectedSearchPlace = null`로 초기화하고, 새로 추가된 일정 블록의 ID(`createdBlockId`)를 `selectedBlockId`에 등록하여 지도상에 신규 일정 마커 포커스(`focusRequest`)를 바로 갱신하도록 처리.
+
+---
+
+## 이슈 28: 일정 장소 제거 X 버튼 항시 노출 (Hover 의존성 제거)
+
+### 1. 지적 및 문제점
+- **지적 내용**: 좌측 일정 목록 블록의 장소 제거 ✕ 버튼이 마우스를 가져갔을 때만(hover) 나타나는 문제.
+
+### 2. 원인 분석 (Root Cause)
+- `SortableBlockItem.tsx` 삭제 버튼에 `md:opacity-0 group-hover/card:opacity-100` 클래스가 부여되어 데스크톱에서 hover 상태일 때만 노출되었음.
+
+### 3. 해결 대책 (Fix)
+- `md:opacity-0 group-hover/card:opacity-100` 클래스를 제거하여 마우스 오버 여부와 상관없이 모든 화면 및 기기에서 **삭제 ✕ 버튼이 항상 눈에 보이도록 수정**.

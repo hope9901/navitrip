@@ -98,7 +98,7 @@ export default function SortableBlockItem({
           <button
             type="button"
             onClick={() => onRemove(block.id)}
-            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all min-h-[44px] min-w-[44px] flex items-center justify-center opacity-90 md:opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all min-h-[44px] min-w-[44px] flex items-center justify-center"
             title="장소 제거"
           >
             <X className="w-4.5 h-4.5" />
