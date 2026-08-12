@@ -70,61 +70,233 @@ export function removeStoredManageToken(planId: string): void {
   localStorage.removeItem(`navitrip_manage_token_${planId}`);
 }
 
-// Helper function to save plan to Supabase or LocalStorage
-export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manageToken: string; isLocalFallback: boolean }> {
-  const planId = plan.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const authorName = plan.authorName || '익명';
-  const sanitizedDays = sanitizePlanPlaces(plan.days);
+export interface LoadedPlanIdentity {
+  id: string;
+  title: string;
+  authorName: string;
+}
 
-  let manageToken = plan.manageToken || getStoredManageToken(planId);
+export function normalizePlanTitle(title: string): string {
+  return (title || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+export function normalizeUserName(userName: string): string {
+  return (userName || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+export interface PlanSaveOptions {
+  plan: PlanData;
+  loadedPlanIdentity?: LoadedPlanIdentity | null;
+  currentUserName: string;
+}
+
+export interface PlanSaveResult {
+  id: string;
+  title: string;
+  authorName: string;
+  manageToken: string;
+  isNewPlan: boolean;
+  isLocalFallback: boolean;
+  message: string;
+}
+
+// Find existing plan owned by authorName with matching normalized title
+export async function findPlanByAuthorAndTitle(
+  authorName: string,
+  title: string
+): Promise<{ id: string; authorName: string; title: string; tokenHash?: string } | null> {
+  const normAuthor = normalizeUserName(authorName);
+  const normTitle = normalizePlanTitle(title);
+
+  if (!normAuthor || !normTitle) return null;
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('plans')
+        .select('id, title, author_name, token_hash, normalized_title, normalized_author_name')
+        .eq('normalized_author_name', normAuthor)
+        .eq('normalized_title', normTitle)
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data) {
+        return {
+          id: data.id,
+          title: data.title,
+          authorName: data.author_name,
+          tokenHash: data.token_hash,
+        };
+      }
+
+      // Fallback query by author_name if normalized columns not yet populated
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('plans')
+        .select('id, title, author_name, token_hash')
+        .eq('author_name', authorName.trim())
+        .limit(20);
+
+      if (!fallbackErr && fallbackData && fallbackData.length > 0) {
+        const match = fallbackData.find((p) => normalizePlanTitle(p.title) === normTitle);
+        if (match) {
+          return {
+            id: match.id,
+            title: match.title,
+            authorName: match.author_name,
+            tokenHash: match.token_hash,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('findPlanByAuthorAndTitle DB query error:', e);
+    }
+  }
+
+  // LocalStorage Fallback Search
+  if (typeof window !== 'undefined') {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('travel_plan_')) {
+        const val = localStorage.getItem(key);
+        if (val) {
+          try {
+            const parsed = JSON.parse(val);
+            if (
+              normalizeUserName(parsed.authorName || '익명') === normAuthor &&
+              normalizePlanTitle(parsed.title || '') === normTitle
+            ) {
+              return {
+                id: parsed.id,
+                title: parsed.title,
+                authorName: parsed.authorName,
+              };
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// Save plan function enforcing all 6 save rules
+export async function savePlanToDB(options: PlanSaveOptions): Promise<PlanSaveResult> {
+  const { plan, loadedPlanIdentity, currentUserName } = options;
+
+  const rawTitle = (plan.title || '').trim();
+  if (!rawTitle) {
+    throw new Error('여행 일정 이름을 입력해 주세요.');
+  }
+
+  const rawAuthor = (currentUserName || plan.authorName || '익명').trim();
+  const normTitle = normalizePlanTitle(rawTitle);
+  const normAuthor = normalizeUserName(rawAuthor);
+
+  const loadedNormTitle = loadedPlanIdentity ? normalizePlanTitle(loadedPlanIdentity.title) : null;
+  const loadedNormAuthor = loadedPlanIdentity ? normalizeUserName(loadedPlanIdentity.authorName) : null;
+
+  const isTitleChanged = loadedPlanIdentity ? normTitle !== loadedNormTitle : false;
+  const isAuthorChanged = loadedPlanIdentity ? normAuthor !== loadedNormAuthor : false;
+
+  let targetPlanId = plan.id;
+  let isNewPlan = false;
+
+  if (loadedPlanIdentity && plan.id && !isTitleChanged && !isAuthorChanged) {
+    // Rule 1 & 6: Same user + Same title as loaded plan -> Update current loaded plan
+    targetPlanId = plan.id;
+    isNewPlan = false;
+  } else {
+    // Rule 2, 3, 4, 5: Title changed or Author changed or New plan -> Search for existing same author+title plan
+    const existing = await findPlanByAuthorAndTitle(rawAuthor, rawTitle);
+
+    if (existing) {
+      const existingToken = getStoredManageToken(existing.id);
+      if (existingToken) {
+        // User owns management token for existing same title plan -> Update it
+        targetPlanId = existing.id;
+        isNewPlan = false;
+      } else {
+        // Same title plan exists but current browser lacks management token
+        throw new Error(`'${rawTitle}' 이름의 기존 일정이 있지만 수정 권한이 없습니다. 다른 이름으로 변경해 주세요.`);
+      }
+    } else {
+      // Create brand new plan
+      targetPlanId = `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      isNewPlan = true;
+    }
+  }
+
+  const sanitizedDays = sanitizePlanPlaces(plan.days);
+  let manageToken = getStoredManageToken(targetPlanId);
   if (!manageToken) {
     manageToken = generateManageToken();
   }
-
-  saveStoredManageToken(planId, manageToken);
+  saveStoredManageToken(targetPlanId, manageToken);
 
   const tokenHash = await sha256Browser(manageToken);
 
   const payload = {
     ...plan,
-    id: planId,
-    authorName,
+    id: targetPlanId,
+    title: rawTitle,
+    authorName: rawAuthor,
     manageToken,
     mapView: plan.mapView,
     days: sanitizedDays,
     updatedAt: new Date().toISOString(),
   };
 
+  let message = '';
+  if (isNewPlan) {
+    message = `'${rawTitle}'이(가) 새로운 일정으로 저장되었습니다.`;
+  } else if (isTitleChanged) {
+    message = `동일한 이름의 기존 일정('${rawTitle}')에 변경사항을 저장했습니다.`;
+  } else {
+    message = `'${rawTitle}' 일정이 업데이트되었습니다.`;
+  }
+
   if (isSupabaseConfigured && supabase) {
     try {
+      const record = {
+        id: targetPlanId,
+        title: rawTitle,
+        author_name: rawAuthor,
+        normalized_title: normTitle,
+        normalized_author_name: normAuthor,
+        token_hash: tokenHash,
+        map_view: plan.mapView,
+        days: sanitizedDays,
+        updated_at: new Date().toISOString(),
+      };
+
       const { data, error } = await supabase
         .from('plans')
-        .upsert({
-          id: planId,
-          title: plan.title,
-          author_name: authorName,
-          token_hash: tokenHash,
-          map_view: plan.mapView,
-          days: sanitizedDays,
-          created_at: plan.createdAt || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .upsert(record)
         .select()
         .single();
 
       if (error) {
         if (
           error.code === '42703' ||
-          error.message?.includes('map_view') ||
+          error.message?.includes('normalized_') ||
           error.message?.includes('token_hash') ||
-          error.message?.includes('author_name')
+          error.message?.includes('map_view')
         ) {
           const { data: retryData, error: retryErr } = await supabase
             .from('plans')
             .upsert({
-              id: planId,
-              title: plan.title,
-              author_name: authorName,
+              id: targetPlanId,
+              title: rawTitle,
+              author_name: rawAuthor,
               days: sanitizedDays,
               created_at: plan.createdAt || new Date().toISOString(),
               updated_at: new Date().toISOString(),
@@ -133,11 +305,27 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
             .single();
 
           if (retryErr) throw retryErr;
-          return { id: retryData.id, manageToken, isLocalFallback: false };
+          return {
+            id: retryData.id,
+            title: rawTitle,
+            authorName: rawAuthor,
+            manageToken,
+            isNewPlan,
+            isLocalFallback: false,
+            message,
+          };
         }
         throw error;
       }
-      return { id: data.id, manageToken, isLocalFallback: false };
+      return {
+        id: data.id,
+        title: rawTitle,
+        authorName: rawAuthor,
+        manageToken,
+        isNewPlan,
+        isLocalFallback: false,
+        message,
+      };
     } catch (err) {
       console.warn('Supabase save error, falling back to LocalStorage:', err);
     }
@@ -145,9 +333,17 @@ export async function savePlanToDB(plan: PlanData): Promise<{ id: string; manage
 
   // LocalStorage Fallback
   if (typeof window !== 'undefined') {
-    localStorage.setItem(`travel_plan_${planId}`, JSON.stringify(payload));
+    localStorage.setItem(`travel_plan_${targetPlanId}`, JSON.stringify(payload));
   }
-  return { id: planId, manageToken, isLocalFallback: true };
+  return {
+    id: targetPlanId,
+    title: rawTitle,
+    authorName: rawAuthor,
+    manageToken,
+    isNewPlan,
+    isLocalFallback: true,
+    message,
+  };
 }
 
 // Helper function to load a single plan from Supabase or LocalStorage

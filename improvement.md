@@ -362,3 +362,30 @@
 - **단일 마운트(Single Mount) 구조로 100% 통일**: `MobileBottomSheet.tsx` 내에서 `PlaceSearchCard`를 **단 1개의 JSX 노드로만 작성**하고, 삼항 연산자 분기 대신 CSS 클래스 조건문(`activeTab === 'search' && !(sheetState === 'peek' && selectedSearchPlace) ? 'flex' : 'hidden'`)으로 보이기/숨김을 제어하여 unmount를 원천 차단.
 - **개발 환경 단일 마운트 로거 추가**: `PlaceSearchCard.tsx`에 `useEffect` 마운트/언마운트 디버그 로거를 추가하여 지도 보기 ➔ 검색 결과 복귀 간 컴포넌트가 결코 unmount되지 않음을 empirically 검증 완료.
 - **상태 분리 및 스크롤 영속화**: `query`, `results`, `scrollTop` 검색 상태는 `PlaceSearchCard` 단일 마운트 인스턴스에 안전하게 보존되며, 검색 탭 ↔ 일정 탭 전환 및 지도 보기 조작 간 검색 API 재호출이 0회로 원천 차단됨.
+
+---
+
+## 이슈 33: 사용자명(authorName) + 일정제목(title) 기반 일정 저장/업데이트 판단 및 제목 변경 시 신규 일정 자동 생성 구축
+
+### 1. 지적 및 문제점
+- **지적 내용**:
+  1. 저장된 일정의 제목을 변경하고 저장할 때 기존 DB 행의 제목이 수정되어 이전 일정을 덮어쓰던 문제.
+  2. 공유받은 일정을 수정 및 저장할 때 원본 작성자 일정이나 원본 행이 변경되던 문제.
+  3. 단순히 `planId` 보유 여부만으로 저장/수정을 판단하여 제목 변경 및 사용자 식별이 정확히 반영되지 못하던 문제.
+
+### 2. 원인 분석 (Root Cause)
+- DB 저장 및 클라이언트 상태 관리에서 `loadedPlanIdentity` (불러온 당시의 ID, 제목, 작성자)를 추적하지 않고, 단일 `planId`로 `upsert`를 수행했음.
+- 제목 정규화(`normalizePlanTitle`) 및 사용자명 정규화(`normalizeUserName`) 기반의 중복 판단 함수가 부재했음.
+
+### 3. 해결 대책 (Fix)
+- **`LoadedPlanIdentity` 추적 & 제목 정규화**: `src/lib/supabase.ts`에 `normalizePlanTitle` 및 `normalizeUserName` 정규화 함수와 `findPlanByAuthorAndTitle` 중복 조회 함수 구현. `page.tsx`, `plan/[id]/page.tsx`에 `loadedPlanIdentity` 상태 신설.
+- **엄격한 6대 저장 규칙 수립**:
+  1. 같은 사용자 + 같은 일정 제목 (수정 권한/manageToken 소유): 기존 일정 업데이트 (`update-current`).
+  2. 같은 사용자 + 다른 일정 제목: 기존 일정 보존 및 **신규 일정 생성** (`create-new`).
+  3. 다른 사용자 + 같은 일정 제목: 기존 타인 일정 덮어쓰기 금지 및 **현재 사용자의 신규 일정 생성**.
+  4. 불러온 일정의 제목 변경 후 저장: 기존 일정 보존 및 새 제목의 신규 일정 생성.
+  5. 공유받은 일정의 제목 변경 후 저장: 공유 원본 보존 및 현재 사용자의 신규 일정 생성 후 URL 전환 (`router.replace`).
+  6. 제목 미변경 상태 저장: 현재 열어둔 본인 일정 업데이트.
+- **보안 및 권한 검증**: 동일 사용자/동일 제목의 기존 일정이 DB에 존재하더라도 현재 브라우저에 해당 일정을 관리할 수 있는 `manageToken`이 없는 경우, 타인의 일정을 강제 덮어쓰지 않고 *"수정 권한이 없습니다. 다른 이름으로 변경해 주세요."* 안내 메시지 출력.
+- **동적 UI 안내 & 통합 Save/Share 함수**: `ItinerarySidebar.tsx`에 제목 변경 시 `"💡 제목이 변경되어 새 일정으로 저장됩니다."` 안내 뱃지 추가 및 버튼 문구 자동 전환(`새 일정 저장`, `새 이름으로 저장`, `변경사항 저장`, `내 일정으로 저장`). 저장과 공유 버튼 모두 공통 `executeSaveOrShare` 함수를 사용하도록 통일.
+- **Supabase DB Migration SQL 작성**: `supabase/migrations/20260812_author_title_unique.sql` 작성 (중복 확인 SQL 포함, `normalized_title` / `normalized_author_name` 컬럼 및 UNIQUE INDEX 추가).

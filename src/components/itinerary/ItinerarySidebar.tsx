@@ -46,6 +46,10 @@ import {
   listSavedPlansFromDB,
   deletePlanFromDB,
   SavedPlanSummary,
+  LoadedPlanIdentity,
+  PlanSaveResult,
+  normalizePlanTitle,
+  normalizeUserName,
 } from '@/lib/supabase';
 
 interface ItinerarySidebarProps {
@@ -61,13 +65,14 @@ interface ItinerarySidebarProps {
   authorName?: string;
   userName?: string;
   onChangeUserName?: () => void;
-  onPlanSaved?: (newId: string) => void;
+  onPlanSaved?: (result: PlanSaveResult) => void;
   onLoadPlan?: (plan: PlanData) => void;
   onNewPlan?: () => void;
   onDeleteCurrentActivePlan?: () => void;
   onRequestMapView?: () => SavedMapView | null;
   onSelectSearchPlace?: (place: Place) => void;
   isMobileMode?: boolean;
+  loadedPlanIdentity?: LoadedPlanIdentity | null;
 }
 
 const emptySubscribe = () => () => {};
@@ -99,6 +104,7 @@ export default function ItinerarySidebar({
   onRequestMapView,
   onSelectSearchPlace,
   isMobileMode = false,
+  loadedPlanIdentity,
 }: ItinerarySidebarProps) {
   const isMounted = useIsMounted();
   const titleInputId = useId();
@@ -122,7 +128,16 @@ export default function ItinerarySidebar({
 
   const normalizedUser = (userName || '').trim().toLowerCase();
   const isAdmin = isMounted && (normalizedUser === 'admin' || userName.trim() === '어드민');
-  const isSharedOriginal = authorName && authorName !== userName && !isAdmin;
+
+  const currentNormTitle = normalizePlanTitle(planTitle);
+  const loadedNormTitle = loadedPlanIdentity ? normalizePlanTitle(loadedPlanIdentity.title) : null;
+  const isTitleChanged = loadedPlanIdentity ? currentNormTitle !== loadedNormTitle : false;
+
+  const currentNormAuthor = normalizeUserName(userName);
+  const loadedNormAuthor = loadedPlanIdentity ? normalizeUserName(loadedPlanIdentity.authorName) : null;
+  const isAuthorChanged = loadedPlanIdentity ? currentNormAuthor !== loadedNormAuthor : Boolean(authorName && authorName !== userName && !isAdmin);
+
+  const isSharedOriginal = isAuthorChanged;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -138,59 +153,58 @@ export default function ItinerarySidebar({
 
   const handleAddPlace = (place: Place) => {
     const newBlock: ItineraryBlock = {
-      id: `block_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       place,
       dayIndex: activeDayIndex,
     };
-
-    setDays((prevDays) => {
-      const newDays = [...prevDays];
-      if (!newDays[activeDayIndex]) {
-        newDays[activeDayIndex] = { day: activeDayIndex + 1, blocks: [] };
-      }
-      newDays[activeDayIndex] = {
-        ...newDays[activeDayIndex],
-        blocks: [...newDays[activeDayIndex].blocks, newBlock],
+    setDays((prev) => {
+      const next = [...prev];
+      const targetDay = next[activeDayIndex] || { day: activeDayIndex + 1, blocks: [] };
+      next[activeDayIndex] = {
+        ...targetDay,
+        blocks: [...(targetDay.blocks || []), newBlock],
       };
-      return newDays;
+      return next;
     });
 
     onSelectBlock(newBlock);
-  };
-
-  const handleRemoveBlock = (blockId: string) => {
-    setDays((prevDays) => {
-      const newDays = [...prevDays];
-      newDays[activeDayIndex] = {
-        ...newDays[activeDayIndex],
-        blocks: newDays[activeDayIndex].blocks.filter((b) => b.id !== blockId),
-      };
-      return newDays;
-    });
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    setDays((prevDays) => {
-      const oldIndex = blocks.findIndex((b) => b.id === active.id);
-      const newIndex = blocks.findIndex((b) => b.id === over.id);
-      const reorderedBlocks = arrayMove(blocks, oldIndex, newIndex);
+    const oldIndex = blocks.findIndex((item) => item.id === active.id);
+    const newIndex = blocks.findIndex((item) => item.id === over.id);
 
-      const newDays = [...prevDays];
-      newDays[activeDayIndex] = {
-        ...newDays[activeDayIndex],
-        blocks: reorderedBlocks,
+    if (oldIndex !== -1 && newIndex !== -1) {
+      const reordered = arrayMove(blocks, oldIndex, newIndex);
+      setDays((prev) => {
+        const next = [...prev];
+        next[activeDayIndex] = { ...next[activeDayIndex], blocks: reordered };
+        return next;
+      });
+    }
+  };
+
+  const handleRemoveBlock = (blockId: string) => {
+    setDays((prev) => {
+      const next = [...prev];
+      next[activeDayIndex] = {
+        ...next[activeDayIndex],
+        blocks: next[activeDayIndex].blocks.filter((b) => b.id !== blockId),
       };
-      return newDays;
+      return next;
     });
   };
 
   const handleAddDay = () => {
     setDays((prev) => [
       ...prev,
-      { day: prev.length + 1, blocks: [] },
+      {
+        day: prev.length + 1,
+        blocks: [],
+      },
     ]);
     setActiveDayIndex(days.length);
     setPendingDeleteDayIdx(null);
@@ -198,7 +212,10 @@ export default function ItinerarySidebar({
 
   const handleRemoveDay = (dayIdx: number) => {
     if (days.length <= 1) return;
-    setDays((prev) => prev.filter((_, idx) => idx !== dayIdx));
+    setDays((prev) => {
+      const filtered = prev.filter((_, idx) => idx !== dayIdx);
+      return filtered.map((d, i) => ({ ...d, day: i + 1 }));
+    });
     if (activeDayIndex >= days.length - 1) {
       setActiveDayIndex(Math.max(0, days.length - 2));
     }
@@ -285,7 +302,7 @@ export default function ItinerarySidebar({
 
   const validateTitle = (): boolean => {
     if (!planTitle || !planTitle.trim()) {
-      setTitleError('일정 제목을 입력해 주세요.');
+      setTitleError('여행 일정 이름을 입력해 주세요.');
       return false;
     }
     setTitleError(null);
@@ -319,94 +336,58 @@ export default function ItinerarySidebar({
     });
   };
 
-  const handleSaveOnly = async () => {
+  const executeSaveOrShare = async (action: 'save' | 'share') => {
     if (!validateTitle()) return;
 
     setIsSaving(true);
     try {
-      const isOtherAuthor = authorName && authorName !== userName && !isAdmin;
-      const targetPlanId = isOtherAuthor ? undefined : planId;
-      const targetTitle = planTitle.trim();
       const currentMapView = onRequestMapView ? onRequestMapView() || undefined : undefined;
       const daysToSave = prepareDaysWithSavedRoutes();
 
-      const planData: PlanData = {
-        id: targetPlanId,
-        title: targetTitle,
-        authorName: userName,
-        mapView: currentMapView,
-        days: daysToSave,
-      };
+      const result = await savePlanToDB({
+        plan: {
+          id: planId,
+          title: planTitle.trim(),
+          authorName: userName,
+          mapView: currentMapView,
+          days: daysToSave,
+        },
+        loadedPlanIdentity,
+        currentUserName: userName,
+      });
 
-      const result = await savePlanToDB(planData);
-
-      if (onPlanSaved && result.id !== planId) {
-        onPlanSaved(result.id);
+      if (onPlanSaved) {
+        onPlanSaved(result);
       }
 
-      setIsJustSaved(true);
-      setSaveMessage(
-        isOtherAuthor
-          ? `'${userName}' 님의 새로운 내 일정으로 성공적으로 저장되었습니다.`
-          : `'${userName}' 님의 일정으로 저장되었습니다.`
-      );
+      if (action === 'save') {
+        setIsJustSaved(true);
+        setSaveMessage(result.message);
+        setTimeout(() => {
+          setIsJustSaved(false);
+          setSaveMessage(null);
+        }, 3500);
+      } else if (action === 'share') {
+        if (result.isLocalFallback) {
+          setSaveMessage('Supabase 설정 전이므로 공유 링크 생성이 제한됩니다. (로컬 저장 완료)');
+          return;
+        }
 
-      setTimeout(() => {
-        setIsJustSaved(false);
-        setSaveMessage(null);
-      }, 3000);
+        const shareUrl = `${window.location.origin}/plan/${result.id}`;
+        await navigator.clipboard.writeText(shareUrl);
+        setCopiedShareUrl(true);
+        setSaveMessage(`공유 링크가 복사되었습니다! (${result.message})`);
+
+        setTimeout(() => {
+          setCopiedShareUrl(false);
+          setSaveMessage(null);
+        }, 3500);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
-      console.error('Failed to save plan:', msg);
-      setSaveMessage('저장 중 오류가 발생했습니다.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSharePlan = async () => {
-    if (!validateTitle()) return;
-
-    setIsSaving(true);
-    try {
-      const isOtherAuthor = authorName && authorName !== userName && !isAdmin;
-      const targetPlanId = isOtherAuthor ? undefined : planId;
-      const targetTitle = planTitle.trim();
-      const currentMapView = onRequestMapView ? onRequestMapView() || undefined : undefined;
-      const daysToSave = prepareDaysWithSavedRoutes();
-
-      const planData: PlanData = {
-        id: targetPlanId,
-        title: targetTitle,
-        authorName: userName,
-        mapView: currentMapView,
-        days: daysToSave,
-      };
-
-      const result = await savePlanToDB(planData);
-
-      if (result.isLocalFallback) {
-        setSaveMessage('Supabase 설정 전이므로 공유 링크 생성이 제한됩니다. (로컬 저장 완료)');
-        return;
-      }
-
-      const shareUrl = `${window.location.origin}/plan/${result.id}`;
-      await navigator.clipboard.writeText(shareUrl);
-      setCopiedShareUrl(true);
-      setSaveMessage('공유 링크가 클립보드에 복사되었습니다!');
-
-      if (onPlanSaved && result.id !== planId) {
-        onPlanSaved(result.id);
-      }
-
-      setTimeout(() => {
-        setCopiedShareUrl(false);
-        setSaveMessage(null);
-      }, 3000);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
-      console.error('Failed to save plan:', msg);
-      setSaveMessage('저장 중 오류가 발생했습니다.');
+      console.error('Save/Share plan error:', err);
+      setTitleError(msg);
+      setSaveMessage(msg);
     } finally {
       setIsSaving(false);
     }
@@ -414,6 +395,19 @@ export default function ItinerarySidebar({
 
   const totalDayDistance = routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
   const totalDayDurationSec = routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+
+  let saveButtonLabel = '저장';
+  if (isJustSaved) {
+    saveButtonLabel = '저장완료';
+  } else if (isSharedOriginal) {
+    saveButtonLabel = '내 일정으로 저장';
+  } else if (isTitleChanged) {
+    saveButtonLabel = '새 이름으로 저장';
+  } else if (!loadedPlanIdentity || !planId) {
+    saveButtonLabel = '새 일정 저장';
+  } else {
+    saveButtonLabel = '변경사항 저장';
+  }
 
   return (
     <div className="flex flex-col h-full bg-slate-950/95 backdrop-blur-xl border-r border-slate-800 text-slate-100 p-4 gap-3 overflow-hidden relative">
@@ -472,27 +466,27 @@ export default function ItinerarySidebar({
         <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
-            onClick={handleSaveOnly}
+            onClick={() => executeSaveOrShare('save')}
             disabled={isSaving}
-            className="inline-flex items-center gap-1 px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition-all shrink-0 active:scale-95"
-            title="일정 저장"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition-all shrink-0 active:scale-95"
+            title={saveButtonLabel}
           >
             {isJustSaved ? (
               <>
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>저장완료</span>
+                <span>{saveButtonLabel}</span>
               </>
             ) : (
               <>
                 <Save className="w-3.5 h-3.5 text-emerald-400" />
-                <span>저장</span>
+                <span>{saveButtonLabel}</span>
               </>
             )}
           </button>
 
           <button
             type="button"
-            onClick={handleSharePlan}
+            onClick={() => executeSaveOrShare('share')}
             disabled={isSaving}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shrink-0 active:scale-95"
             title="공유 링크 생성"
@@ -541,6 +535,17 @@ export default function ItinerarySidebar({
             </span>
           ) : null}
         </div>
+
+        {/* Title change or Shared original hint banner */}
+        {isSharedOriginal ? (
+          <div className="text-[11px] font-medium text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1">
+            <span>💡 공유받은 일정입니다. 저장 시 내 일정으로 새로 저장됩니다.</span>
+          </div>
+        ) : isTitleChanged ? (
+          <div className="text-[11px] font-medium text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1">
+            <span>💡 제목이 변경되어 새 일정으로 저장됩니다.</span>
+          </div>
+        ) : null}
 
         {titleError && (
           <div className="text-[11px] font-medium text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1">

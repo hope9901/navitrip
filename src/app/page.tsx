@@ -9,6 +9,7 @@ import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
 import { createRouteSignature } from '@/lib/routeSignature';
 import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
+import { LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 
 const emptySubscribe = () => () => {};
 function useIsMounted() {
@@ -30,6 +31,7 @@ export default function HomePage() {
   const [planTitle, setPlanTitle] = useState('순천만 힐링 여행');
   const [planId, setPlanId] = useState<string | undefined>(undefined);
   const [authorName, setAuthorName] = useState<string | undefined>(undefined);
+  const [loadedPlanIdentity, setLoadedPlanIdentity] = useState<LoadedPlanIdentity | null>(null);
   const [activeDayIndex, setActiveDayIndex] = useState(0);
 
   // Camera Focus Priority State
@@ -350,14 +352,31 @@ export default function HomePage() {
     setDayChangeKey(Date.now());
   };
 
-  const handlePlanSaved = (newId: string) => {
-    setPlanId(newId);
+  const handlePlanSaved = (result: PlanSaveResult) => {
+    setPlanId(result.id);
+    setAuthorName(result.authorName);
+    setPlanTitle(result.title);
+    setLoadedPlanIdentity({
+      id: result.id,
+      title: result.title,
+      authorName: result.authorName,
+    });
   };
 
   const handleLoadPlan = (loadedPlan: PlanData) => {
-    if (loadedPlan.id) setPlanId(loadedPlan.id);
-    if (loadedPlan.title) setPlanTitle(loadedPlan.title);
-    if (loadedPlan.authorName) setAuthorName(loadedPlan.authorName);
+    const loadedId = loadedPlan.id || '';
+    const loadedTitle = loadedPlan.title || '불러온 여행 일정';
+    const loadedAuthor = loadedPlan.authorName || userName || '익명';
+
+    setPlanId(loadedId);
+    setPlanTitle(loadedTitle);
+    setAuthorName(loadedAuthor);
+    setLoadedPlanIdentity({
+      id: loadedId,
+      title: loadedTitle,
+      authorName: loadedAuthor,
+    });
+
     if (loadedPlan.days && Array.isArray(loadedPlan.days)) {
       setDays(loadedPlan.days);
     }
@@ -371,6 +390,7 @@ export default function HomePage() {
     setPlanId(undefined);
     setAuthorName(userName);
     setPlanTitle('새 여행 일정');
+    setLoadedPlanIdentity(null);
     setDays([
       { day: 1, blocks: [] },
       { day: 2, blocks: [] },
@@ -410,6 +430,7 @@ export default function HomePage() {
           onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
           onRequestMapView={() => mapRef.current?.getMapView() || null}
           onSelectSearchPlace={handleSelectSearchPlace}
+          loadedPlanIdentity={loadedPlanIdentity}
         />
       </aside>
 
@@ -478,6 +499,7 @@ export default function HomePage() {
           setMobilePanelTab={setMobilePanelTab}
           mobileSheetState={mobileSheetState}
           setMobileSheetState={setMobileSheetState}
+          loadedPlanIdentity={loadedPlanIdentity}
         />
       </div>
 

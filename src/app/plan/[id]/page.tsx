@@ -9,7 +9,7 @@ import Toast from '@/components/common/Toast';
 import MobileBottomSheet, { MobilePanelTab, MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
 import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
-import { loadPlanFromDB } from '@/lib/supabase';
+import { loadPlanFromDB, LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 import { createRouteSignature } from '@/lib/routeSignature';
 import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -45,6 +45,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
 
   const [planTitle, setPlanTitle] = useState('공유받은 여행 일정');
   const [authorName, setAuthorName] = useState<string | undefined>(undefined);
+  const [loadedPlanIdentity, setLoadedPlanIdentity] = useState<LoadedPlanIdentity | null>(null);
   const [activeDayIndex, setActiveDayIndex] = useState(0);
 
   // Camera Focus Priority State
@@ -116,8 +117,17 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
         const fetchedPlan = await loadPlanFromDB(currentPlanId);
         if (fetchedPlan) {
           setLoadedPlan(fetchedPlan);
-          setPlanTitle(fetchedPlan.title || '공유받은 여행 일정');
-          setAuthorName(fetchedPlan.authorName || '익명');
+          const loadedTitle = fetchedPlan.title || '공유받은 여행 일정';
+          const loadedAuthor = fetchedPlan.authorName || '익명';
+
+          setPlanTitle(loadedTitle);
+          setAuthorName(loadedAuthor);
+          setLoadedPlanIdentity({
+            id: fetchedPlan.id || currentPlanId,
+            title: loadedTitle,
+            authorName: loadedAuthor,
+          });
+
           if (fetchedPlan.days && fetchedPlan.days.length > 0) {
             setDays(fetchedPlan.days);
           }
@@ -390,10 +400,18 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     setDayChangeKey(Date.now());
   };
 
-  const handlePlanSaved = (newId: string) => {
-    if (newId !== currentPlanId) {
-      setCurrentPlanId(newId);
-      router.replace(`/plan/${newId}`);
+  const handlePlanSaved = (result: PlanSaveResult) => {
+    setCurrentPlanId(result.id);
+    setAuthorName(result.authorName);
+    setPlanTitle(result.title);
+    setLoadedPlanIdentity({
+      id: result.id,
+      title: result.title,
+      authorName: result.authorName,
+    });
+
+    if (result.id && result.id !== currentPlanId) {
+      router.replace(`/plan/${result.id}`);
     }
   };
 
@@ -474,6 +492,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
           onRequestMapView={() => mapRef.current?.getMapView() || null}
           onSelectSearchPlace={handleSelectSearchPlace}
+          loadedPlanIdentity={loadedPlanIdentity}
         />
       </aside>
 
@@ -543,6 +562,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           setMobilePanelTab={setMobilePanelTab}
           mobileSheetState={mobileSheetState}
           setMobileSheetState={setMobileSheetState}
+          loadedPlanIdentity={loadedPlanIdentity}
         />
       </div>
 

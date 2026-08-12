@@ -7,6 +7,8 @@ import PlaceSearchCard from '../search/PlaceSearchCard';
 import SearchPlacePreviewCard from '../search/SearchPlacePreviewCard';
 import { ChevronUp, ChevronDown, List, Search, Calendar, Map } from 'lucide-react';
 
+import { LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
+
 export type MobilePanelTab = 'search' | 'itinerary';
 export type MobileSheetState = 'peek' | 'half' | 'full';
 
@@ -23,7 +25,7 @@ interface MobileBottomSheetProps {
   authorName?: string;
   userName?: string;
   onChangeUserName?: () => void;
-  onPlanSaved?: (newId: string) => void;
+  onPlanSaved?: (result: PlanSaveResult) => void;
   onLoadPlan?: (plan: PlanData) => void;
   onNewPlan?: () => void;
   onDeleteCurrentActivePlan?: () => void;
@@ -36,6 +38,7 @@ interface MobileBottomSheetProps {
   setMobilePanelTab?: (tab: MobilePanelTab) => void;
   mobileSheetState?: MobileSheetState;
   setMobileSheetState?: (state: MobileSheetState) => void;
+  loadedPlanIdentity?: LoadedPlanIdentity | null;
 }
 
 export default function MobileBottomSheet(props: MobileBottomSheetProps) {
