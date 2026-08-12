@@ -275,3 +275,19 @@
 - **가짜 블록 (`id: ''`) 및 `lat - 0.002` 삭제**: 가짜 일정 블록 생성 로직과 임의 위도 감산 코드를 완전 삭제하고 순수 WGS84 좌표 및 독립 콜백 처리.
 - **검색 결과 유지 & `[✓ 추가됨]` 뱃지**: 일정에 추가하더라도 검색어와 검색 결과, 스크롤 위치를 100% 보존하며 이미 추가된 장소는 `[✓ 추가됨]` 버튼(비활성화) 및 *"Day X 일정에 추가했습니다."* 토스트 알림 제공.
 - **데스크톱 UI 100% 원본 보존**: 모바일 전용 UX 개편으로 데스크톱 레이아웃과 기존 기능은 1px의 오차 없이 그대로 유지.
+
+---
+
+## 이슈 27: "지도 보기" / "지도 크게보기" 클릭 시 추가된 일정 블록 사라짐/보이지 않음 버그 수정
+
+### 1. 지적 및 문제점
+- **지적 내용**: 장소를 일정에 추가한 후 "지도 보기" 또는 "지도 크게보기" 버튼을 클릭하면 기존에 추가해 둔 일정 목록(블록)이 가려지거나 지워져 보이는 버그.
+
+### 2. 원인 분석 (Root Cause)
+- `MobileBottomSheet.tsx`에서 `sheetState === 'peek' && props.selectedSearchPlace`가 참일 경우 `SearchPlacePreviewCard`가 렌더링되면서 사용자가 현재 `itinerary` (일정) 탭에 있더라도 `ItinerarySidebar` (일정 목록) 렌더링을 완전히 덮어써 버리는 논리 오류가 있었음.
+- `handleAddPlaceFromSearch` 실행 시 `selectedSearchPlace`가 초기화(clear)되지 않아 검색 장소 선택 상태가 유지된 채 `peek` 상태로 진입 시 추가된 일차가 아닌 이전 검색 미리보기 카드가 강제로 렌더링됨.
+- `handleAddPlaceFromSearch` 내부에서 신규 일차 생성 시 `dayIndex` 필드 대신 `day: activeDayIndex + 1` 객체 속성을 안전하게 포함하지 않아 `DayItinerary` 타입 구조 손상 가능성이 있었음.
+
+### 3. 해결 대책 (Fix)
+- **`MobileBottomSheet` 렌더링 계층 수정**: `activeTab === 'itinerary'`일 때는 `SearchPlacePreviewCard`가 일정 목록을 덮어쓰지 않고 항상 `ItinerarySidebar`가 렌더링되도록 수정. `[📅 일정]` 탭 클릭 시 `selectedSearchPlace` 자동 초기화.
+- **`handleAddPlaceFromSearch` 개선**: 장소 추가 시 `selectedSearchPlace = null`로 초기화하고, 새로 추가된 일정 블록의 ID(`createdBlockId`)를 `selectedBlockId`에 등록하여 지도상에 신규 일정 마커 포커스(`focusRequest`)를 바로 갱신하도록 처리. `day` 객체 속성 보장.

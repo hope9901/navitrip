@@ -299,25 +299,44 @@ export default function HomePage() {
   };
 
   const handleAddPlaceFromSearch = (place: Place) => {
+    const createdBlockId = `block-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+
     setDays((prevDays) => {
       const newDays = [...prevDays];
-      const currentDay = newDays[activeDayIndex] || { dayIndex: activeDayIndex, blocks: [] };
+      const currentDay = newDays[activeDayIndex] || { day: activeDayIndex + 1, blocks: [] };
       const existingBlocks = currentDay.blocks || [];
 
-      const isDuplicate = existingBlocks.some((b) => b.place.id === place.id);
+      const isDuplicate = existingBlocks.some(
+        (b) => b.place.id === place.id || (b.place.title === place.title && Math.abs(b.place.lat - place.lat) < 0.00001 && Math.abs(b.place.lng - place.lng) < 0.00001)
+      );
       if (isDuplicate) return prevDays;
 
       const newBlock: ItineraryBlock = {
-        id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        id: createdBlockId,
         place,
         dayIndex: activeDayIndex,
       };
 
       newDays[activeDayIndex] = {
         ...currentDay,
+        day: currentDay.day || activeDayIndex + 1,
         blocks: [...existingBlocks, newBlock],
       };
       return newDays;
+    });
+
+    setSelectedSearchPlace(null);
+    setSelectedPlace(place);
+    setSelectedBlockId(createdBlockId);
+    setFocusRequest({
+      requestId: Date.now(),
+      placeId: place.id,
+      blockId: createdBlockId,
+      lat: place.lat,
+      lng: place.lng,
+      title: place.title,
+      address: place.roadAddress || place.address,
+      source: 'sidebar',
     });
 
     setToastMessage(`Day ${activeDayIndex + 1} 일정에 '${place.title}' 장소를 추가했습니다.`);
