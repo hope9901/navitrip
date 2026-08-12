@@ -336,6 +336,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       address: place.roadAddress || place.address,
       source: 'search',
     });
+    setMobileSheetState('peek');
   };
 
   const handleAddPlaceFromSearch = (place: Place) => {
@@ -472,6 +473,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           onNewPlan={handleNewPlan}
           onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
           onRequestMapView={() => mapRef.current?.getMapView() || null}
+          onSelectSearchPlace={handleSelectSearchPlace}
         />
       </aside>
 

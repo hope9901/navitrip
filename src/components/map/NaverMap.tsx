@@ -53,6 +53,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<naver.maps.Map | null>(null);
   const markersRef = useRef<Map<string, naver.maps.Marker>>(new Map());
+  const searchMarkerRef = useRef<naver.maps.Marker | null>(null);
   const polylinesRef = useRef<naver.maps.Polyline[]>([]);
   const infoWindowRef = useRef<naver.maps.InfoWindow | null>(null);
   const pendingFocusRequestRef = useRef<MapFocusRequest | null>(null);
@@ -71,6 +72,11 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
   // Fit bounds helper function - Closes InfoWindow when "전체 보기" is triggered
   const fitAllBounds = useCallback(() => {
     if (!mapInstance.current || typeof naver === 'undefined' || !naver.maps) return;
+
+    if (searchMarkerRef.current) {
+      searchMarkerRef.current.setMap(null);
+      searchMarkerRef.current = null;
+    }
 
     if (infoWindowRef.current) {
       infoWindowRef.current.close();
@@ -320,6 +326,11 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         </div>
       `;
 
+      if (searchMarkerRef.current) {
+        searchMarkerRef.current.setMap(null);
+        searchMarkerRef.current = null;
+      }
+
       if (infoWindowRef.current) {
         infoWindowRef.current.setContent(infoContent);
 
@@ -327,7 +338,38 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         if (markerKey && markersRef.current.has(markerKey)) {
           infoWindowRef.current.open(mapInstance.current!, markersRef.current.get(markerKey)!);
         } else {
-          infoWindowRef.current.open(mapInstance.current!, targetPos);
+          // Render a distinct glowing Search Marker pin for search places
+          const searchMarkerContent = `
+            <div style="
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 36px;
+              height: 36px;
+              background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+              color: white;
+              font-weight: 700;
+              font-size: 16px;
+              border-radius: 50%;
+              box-shadow: 0 4px 14px rgba(56, 189, 248, 0.6), 0 0 0 3px rgba(255, 255, 255, 0.95);
+              cursor: pointer;
+            ">
+              📍
+            </div>
+          `;
+
+          searchMarkerRef.current = new naver.maps.Marker({
+            position: targetPos,
+            map: mapInstance.current!,
+            title: placeData.title || '검색 장소',
+            icon: {
+              content: searchMarkerContent,
+              anchor: new naver.maps.Point(18, 18),
+            },
+            zIndex: 120,
+          });
+
+          infoWindowRef.current.open(mapInstance.current!, searchMarkerRef.current);
         }
       }
     },

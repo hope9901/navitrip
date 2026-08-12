@@ -296,6 +296,7 @@ export default function HomePage() {
       address: place.roadAddress || place.address,
       source: 'search',
     });
+    setMobileSheetState('peek');
   };
 
   const handleAddPlaceFromSearch = (place: Place) => {
@@ -408,6 +409,7 @@ export default function HomePage() {
           onNewPlan={handleNewPlan}
           onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
           onRequestMapView={() => mapRef.current?.getMapView() || null}
+          onSelectSearchPlace={handleSelectSearchPlace}
         />
       </aside>
 
