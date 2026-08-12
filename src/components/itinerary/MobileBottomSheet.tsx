@@ -176,16 +176,31 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-hidden flex flex-col bg-slate-950">
-        {activeTab === 'search' ? (
-          sheetState === 'peek' && props.selectedSearchPlace ? (
-            <SearchPlacePreviewCard
-              place={props.selectedSearchPlace}
-              onAddPlace={handleAddPlace}
-              isAlreadyAdded={currentDayPlaceIds.includes(props.selectedSearchPlace.id)}
-              onReturnToSearch={handleReturnToSearchResults}
-              onClose={props.onClearSelectedSearchPlace}
-            />
+      <div className="flex-1 overflow-hidden flex flex-col bg-slate-950 relative">
+        {/* Search Tab Panel (Permanently mounted to preserve search query & result table) */}
+        <div
+          className={`flex-1 flex-col min-h-0 overflow-hidden ${
+            activeTab === 'search' ? 'flex' : 'hidden'
+          }`}
+        >
+          {sheetState === 'peek' && props.selectedSearchPlace ? (
+            <>
+              <SearchPlacePreviewCard
+                place={props.selectedSearchPlace}
+                onAddPlace={handleAddPlace}
+                isAlreadyAdded={currentDayPlaceIds.includes(props.selectedSearchPlace.id)}
+                onReturnToSearch={handleReturnToSearchResults}
+                onClose={props.onClearSelectedSearchPlace}
+              />
+              <div className="hidden">
+                <PlaceSearchCard
+                  onAddPlace={handleAddPlace}
+                  onSelectPlace={handleSelectSearchPlaceOnMobile}
+                  addedPlaceIds={currentDayPlaceIds}
+                  containerMode="mobile-sheet"
+                />
+              </div>
+            </>
           ) : (
             <div className="flex-1 p-3.5 flex flex-col min-h-0 overflow-y-auto">
               <PlaceSearchCard
@@ -195,13 +210,17 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
                 containerMode="mobile-sheet"
               />
             </div>
-          )
-        ) : (
-          /* Itinerary Tab Content - Always rendered when activeTab === 'itinerary' */
-          <div className="flex-1 overflow-hidden">
-            <ItinerarySidebar {...props} onSelectSearchPlace={handleSelectSearchPlaceOnMobile} />
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Itinerary Tab Panel */}
+        <div
+          className={`flex-1 overflow-hidden ${
+            activeTab === 'itinerary' ? 'block' : 'hidden'
+          }`}
+        >
+          <ItinerarySidebar {...props} onSelectSearchPlace={handleSelectSearchPlaceOnMobile} />
+        </div>
       </div>
     </div>
   );

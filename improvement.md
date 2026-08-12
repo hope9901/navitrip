@@ -319,3 +319,17 @@
 - **사이드바 프로퍼티 바인딩**: `page.tsx` 및 `plan/[id]/page.tsx` 내 `<ItinerarySidebar ... />`에 `onSelectSearchPlace={handleSelectSearchPlace}`를 명시적으로 연결하여 데스크톱 및 모바일 전 환경에서 "지도에서 보기" 클릭 이벤트가 정상 동작하도록 수정.
 - **검색 장소 전용 핀 마커 (`searchMarkerRef`) 구축**: `NaverMap.tsx`에 검색 장소 전용 글로잉 핀 마커(`📍`)를 신설하여 "지도에서 보기" 누르는 즉시 해당 장소로 지도가 줌(15) 연동 이동하고 밝은 파란색 핀 마커와 정보창이 함께 표시되도록 보완.
 - **모바일 뷰포트 연동**: 모바일에서는 "지도에서 보기" 클릭 즉시 `mobileSheetState = 'peek'`로 자동 전환되어 축소된 패널 위로 지도가 한눈에 들어오도록 보완.
+
+---
+
+## 이슈 30: 모바일 환경 탭 전환 및 지도 보기 시 검색 결과 목록 유실 방지 (검색 상태 영속화)
+
+### 1. 지적 및 문제점
+- **지적 내용**: 모바일 환경에서 장소 검색을 수행한 후 지도 보기, 지도 크게보기, 일정 탭 이동 등 다른 화면을 보고 오면 검색어 및 검색 결과 테이블이 삭제되어 다시 검색해야 하는 문제.
+
+### 2. 원인 분석 (Root Cause)
+- `MobileBottomSheet.tsx` 내부에서 탭(`search` vs `itinerary`) 전환 시 삼항 연산자로 `PlaceSearchCard` 컴포넌트를 DOM에서 완전 언마운트(unmount)시켜 React 로컬 State(`query`, `results`)가 파괴되었음.
+
+### 3. 해결 대책 (Fix)
+- **DOM 영속성 유지 & CSS Display 분기**: `MobileBottomSheet.tsx`에서 `PlaceSearchCard`를 삼항 연산자로 파괴하지 않고 DOM에 항시 마운트(permanently mounted) 상태로 유지하며 CSS (`activeTab === 'search' ? 'flex' : 'hidden'`)로 보이기/숨김 제어.
+- **검색창 우측 ✕ 버튼 전용 초기화**: 탭 이동, 지도 크게보기, 바텀시트 3단계 높이 조절 등 그 어떠한 조작에도 검색 결과 테이블과 검색어가 100% 영속 보존되며, 사용자가 **검색창 우측 ✕ 버튼을 직접 누를 때만** 검색어 및 결과 테이블이 초기화되도록 수정 완료.
