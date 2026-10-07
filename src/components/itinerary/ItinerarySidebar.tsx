@@ -17,7 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView, TravelMode } from '@/types/itinerary';
-import { estimateWalkingSegment } from '@/lib/travelMode';
+import { countWalkingSegments } from '@/lib/travelMode';
 import SortableBlockItem from './SortableBlockItem';
 import SavedPlansModals from './SavedPlansModals';
 import { usePlanActions } from './usePlanActions';
@@ -220,22 +220,17 @@ export default function ItinerarySidebar({
     setPendingDeleteDayIdx(null);
   };
 
+  // 탭을 누르면 해당 날로 이동만 한다 (삭제는 ✕ 버튼을 두 번 눌러 확인)
   const handleDayTabClick = (idx: number) => {
-    if (pendingDeleteDayIdx === idx) {
-      handleRemoveDay(idx);
-      return;
-    }
-
-    if (activeDayIndex === idx && days.length > 1) {
-      setPendingDeleteDayIdx(idx);
-    } else {
-      setActiveDayIndex(idx);
-      setPendingDeleteDayIdx(null);
-    }
+    setActiveDayIndex(idx);
+    setPendingDeleteDayIdx(null);
   };
 
   const totalDayDistance = routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
   const totalDayDurationSec = routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+  // 도보 구간은 시간·거리 정보가 없어 합계에서 제외된다
+  const walkingSegmentCount = countWalkingSegments(routes);
+  const hasDrivingSegments = routes.length > walkingSegmentCount;
 
   return (
     <div className="flex flex-col h-full bg-slate-950/95 backdrop-blur-xl border-r border-slate-800 text-slate-100 p-4 gap-3 overflow-hidden relative">
@@ -397,7 +392,7 @@ export default function ItinerarySidebar({
       )}
 
       {/* Day Selector Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-800/80 custom-scrollbar shrink-0">
+      <div className="flex items-center gap-2 md:gap-1.5 overflow-x-auto pt-2 pr-2 md:pt-1 pb-2 md:pb-1 border-b border-slate-800/80 custom-scrollbar shrink-0">
         {days.map((dayItem, idx) => {
           const isPendingDelete = pendingDeleteDayIdx === idx;
           const isActive = activeDayIndex === idx;
@@ -407,7 +402,7 @@ export default function ItinerarySidebar({
               <button
                 type="button"
                 onClick={() => handleDayTabClick(idx)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                className={`flex items-center gap-1 px-3.5 md:px-3 min-h-[40px] md:min-h-0 md:py-1.5 rounded-xl text-sm md:text-xs font-bold transition-all ${
                   isPendingDelete
                     ? 'bg-rose-600 text-white border border-rose-500 shadow-md animate-pulse ring-2 ring-rose-500/50'
                     : isActive
@@ -416,7 +411,7 @@ export default function ItinerarySidebar({
                 }`}
               >
                 <Calendar className="w-3 h-3" />
-                <span>{isPendingDelete ? `Day ${idx + 1} 삭제` : `Day ${idx + 1}`}</span>
+                <span>{isPendingDelete ? `Day ${idx + 1} 삭제할까요?` : `Day ${idx + 1}`}</span>
               </button>
               {days.length > 1 && (
                 <button
@@ -429,7 +424,8 @@ export default function ItinerarySidebar({
                       setPendingDeleteDayIdx(idx);
                     }
                   }}
-                  className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center transition-all text-[10px] ${
+                  aria-label={isPendingDelete ? `Day ${idx + 1} 삭제 확인` : `Day ${idx + 1} 삭제`}
+                  className={`absolute -top-2 -right-2 md:-top-1 md:-right-1 w-6 h-6 md:w-4 md:h-4 rounded-full flex items-center justify-center transition-all text-[11px] md:text-[10px] ${
                     isPendingDelete
                       ? 'bg-rose-500 text-white ring-2 ring-white opacity-100'
                       : 'bg-slate-800 hover:bg-rose-500 text-slate-400 hover:text-white opacity-80 md:opacity-0 group-hover:opacity-100'
@@ -446,7 +442,7 @@ export default function ItinerarySidebar({
         <button
           type="button"
           onClick={handleAddDay}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-900/60 hover:bg-slate-800 text-emerald-400 border border-dashed border-emerald-500/40 transition-all shrink-0"
+          className="flex items-center gap-1 px-3 md:px-2.5 min-h-[40px] md:min-h-0 md:py-1.5 rounded-xl text-sm md:text-xs font-semibold bg-slate-900/60 hover:bg-slate-800 text-emerald-400 border border-dashed border-emerald-500/40 transition-all shrink-0"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>일차 추가</span>
@@ -474,12 +470,17 @@ export default function ItinerarySidebar({
           {routes.length > 0 && (
             <span className="text-emerald-400 font-semibold flex items-center gap-1">
               <Navigation className="w-3 h-3" />
-              <span>
-                {totalDayDistance >= 1000 ? `${(totalDayDistance / 1000).toFixed(1)}km` : `${totalDayDistance}m`}
-                {' / '}
-                {Math.floor(totalDayDurationSec / 3600) > 0 ? `${Math.floor(totalDayDurationSec / 3600)}시간 ` : ''}
-                {Math.ceil((totalDayDurationSec % 3600) / 60)}분
-              </span>
+              {hasDrivingSegments ? (
+                <span>
+                  {totalDayDistance >= 1000 ? `${(totalDayDistance / 1000).toFixed(1)}km` : `${totalDayDistance}m`}
+                  {' / '}
+                  {Math.floor(totalDayDurationSec / 3600) > 0 ? `${Math.floor(totalDayDurationSec / 3600)}시간 ` : ''}
+                  {Math.ceil((totalDayDurationSec % 3600) / 60)}분
+                  {walkingSegmentCount > 0 && <span className="text-slate-400 font-normal"> (도보 제외)</span>}
+                </span>
+              ) : (
+                <span>모두 도보 이동</span>
+              )}
             </span>
           )}
         </div>
@@ -507,7 +508,7 @@ export default function ItinerarySidebar({
                     block={block}
                     index={idx}
                     drivingToNext={(drivingRoutes ?? routes)[idx]}
-                    walkingToNext={blocks[idx + 1] ? estimateWalkingSegment(block, blocks[idx + 1]) : undefined}
+                    hasNext={idx < blocks.length - 1}
                     onChangeTravelMode={handleChangeTravelMode}
                     onRemove={handleRemoveBlock}
                     onSelect={onSelectBlock}

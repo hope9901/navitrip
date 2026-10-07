@@ -1,24 +1,7 @@
 import { ItineraryBlock, RouteSegment } from '@/types/itinerary';
 
-// 네이버 Directions API는 자동차 경로만 제공하므로, 도보는 직선거리 기반으로 추정한다.
-// 직선거리에 우회 계수를 곱해 실제 보행 경로 길이를 근사하고 평균 보행 속도(약 4km/h)로 시간을 계산.
-const WALKING_DETOUR_FACTOR = 1.3;
-const WALKING_SPEED_METER_PER_SEC = 4000 / 3600;
-
-export function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371e3;
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return Math.round(R * c);
-}
+// 네이버 Directions API는 자동차 경로만 제공한다.
+// 도보 경로/시간 API를 연동하기 전까지 도보 구간은 시간·거리 없이 '도보'로만 표시하고 합계에서 제외한다.
 
 export function formatDistance(meters: number): string {
   if (meters < 1000) return `${meters}m`;
@@ -34,18 +17,14 @@ export function formatDuration(seconds: number): string {
   return remMins > 0 ? `${hrs}시간 ${remMins}분` : `${hrs}시간`;
 }
 
-export function estimateWalkingSegment(from: ItineraryBlock, to: ItineraryBlock): RouteSegment {
-  const straight = calculateHaversineDistance(from.place.lat, from.place.lng, to.place.lat, to.place.lng);
-  const distanceMeter = Math.round(straight * WALKING_DETOUR_FACTOR);
-  const durationSeconds = Math.round(distanceMeter / WALKING_SPEED_METER_PER_SEC);
-
+export function createWalkingSegment(from: ItineraryBlock, to: ItineraryBlock): RouteSegment {
   return {
     fromBlockId: from.id,
     toBlockId: to.id,
-    distanceMeter,
-    durationSeconds,
-    formattedDistance: formatDistance(distanceMeter),
-    formattedDuration: formatDuration(durationSeconds),
+    distanceMeter: 0,
+    durationSeconds: 0,
+    formattedDistance: '',
+    formattedDuration: '',
     path: [
       [from.place.lat, from.place.lng],
       [to.place.lat, to.place.lng],
@@ -54,16 +33,20 @@ export function estimateWalkingSegment(from: ItineraryBlock, to: ItineraryBlock)
   };
 }
 
+export function countWalkingSegments(routes: RouteSegment[]): number {
+  return routes.filter((r) => r.travelMode === 'walking').length;
+}
+
 /**
  * 자동차 경로 목록에 각 블록의 이동 수단 선택을 반영한다.
- * 도보 구간은 자동차 경로 대신 도보 추정치로 교체되며, 원본 자동차 경로는 저장용으로 그대로 유지된다.
+ * 도보 구간은 시간·거리 없는 도보 구간으로 교체되며, 원본 자동차 경로는 저장용으로 그대로 유지된다.
  */
 export function applyTravelModes(blocks: ItineraryBlock[], drivingRoutes: RouteSegment[]): RouteSegment[] {
   return drivingRoutes.map((segment, idx) => {
     const from = blocks[idx];
     const to = blocks[idx + 1];
     if (from && to && from.travelModeToNext === 'walking') {
-      return estimateWalkingSegment(from, to);
+      return createWalkingSegment(from, to);
     }
     return segment;
   });

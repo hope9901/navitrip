@@ -87,8 +87,10 @@ export default function SharedItineraryView({
                   <span className="flex-1 min-w-0 text-xs text-slate-400 flex items-center gap-1.5">
                     <ModeIcon className={`w-3.5 h-3.5 shrink-0 ${mode === 'walking' ? 'text-sky-400' : 'text-emerald-400'}`} />
                     <span className="truncate">
-                      {segment
-                        ? `${mode === 'walking' ? '도보 약 ' : ''}${segment.formattedDuration} · ${segment.formattedDistance}`
+                      {mode === 'walking'
+                        ? '도보'
+                        : segment
+                        ? `${segment.formattedDuration} · ${segment.formattedDistance}`
                         : '이동 정보 계산 중'}
                     </span>
                   </span>

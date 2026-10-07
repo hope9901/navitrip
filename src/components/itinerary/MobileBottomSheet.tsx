@@ -6,7 +6,7 @@ import ItinerarySidebar from './ItinerarySidebar';
 import SearchPlacePreviewCard from '../search/SearchPlacePreviewCard';
 import SharedItineraryView from './SharedItineraryView';
 import { ChevronUp, ChevronDown, Plus, Edit3 } from 'lucide-react';
-import { formatDistance, formatDuration } from '@/lib/travelMode';
+import { countWalkingSegments, formatDistance, formatDuration } from '@/lib/travelMode';
 
 import { LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 
@@ -168,11 +168,18 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
 
   const totalDistance = props.routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
   const totalDuration = props.routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+  // 도보 구간은 시간·거리 정보가 없어 합계에서 제외된다
+  const walkingSegmentCount = countWalkingSegments(props.routes);
+  const hasDrivingSegments = props.routes.length > walkingSegmentCount;
   const summary =
     currentDayBlocks.length === 0
       ? '아직 장소가 없어요'
-      : props.routes.length > 0
-      ? `${currentDayBlocks.length}곳 · ${formatDistance(totalDistance)} · ${formatDuration(Math.ceil(totalDuration / 60) * 60)}`
+      : hasDrivingSegments
+      ? `${currentDayBlocks.length}곳 · ${formatDistance(totalDistance)} · ${formatDuration(Math.ceil(totalDuration / 60) * 60)}${
+          walkingSegmentCount > 0 ? ' (도보 제외)' : ''
+        }`
+      : walkingSegmentCount > 0
+      ? `${currentDayBlocks.length}곳 · 모두 도보 이동`
       : `${currentDayBlocks.length}곳`;
 
   // Search result preview mode (map focused on a search result)
@@ -183,6 +190,7 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
           place={props.selectedSearchPlace}
           onAddPlace={(place) => props.onAddPlaceFromSearch?.(place)}
           isAlreadyAdded={currentDayPlaceIds.includes(props.selectedSearchPlace.id)}
+          targetDayLabel={`Day ${props.activeDayIndex + 1}`}
           onReturnToSearch={props.onReturnToSearch}
           onClose={props.onClearSelectedSearchPlace}
         />

@@ -23,11 +23,12 @@ export default function RouteSummaryCard({
   refreshCooldownSeconds = 0,
   blockCount = 0,
 }: RouteSummaryCardProps) {
-  // Naver driving routes (excluding fallback segments) plus user-selected walking segments
+  // Naver driving routes only (walking segments have no time/distance yet, fallback segments are excluded)
   const drivingSegments = routes.filter(
     (r) =>
-      r.travelMode === 'walking' ||
-      (!r.isFallback && (r.source === 'live' || r.source === 'cache' || r.source === 'saved' || r.source === 'naver'))
+      r.travelMode !== 'walking' &&
+      !r.isFallback &&
+      (r.source === 'live' || r.source === 'cache' || r.source === 'saved' || r.source === 'naver')
   );
   const hasWalkingSegments = routes.some((r) => r.travelMode === 'walking');
   const hasDrivingRoutes = drivingSegments.length > 0;
@@ -105,7 +106,7 @@ export default function RouteSummaryCard({
         </div>
         <div>
           <div className="text-[11px] font-medium text-slate-400">
-            {hasWalkingSegments ? '예상 이동 거리/시간 (도보 포함)' : '예상 자동차 이동 거리/시간'}
+            {hasWalkingSegments ? '예상 자동차 이동 거리/시간 (도보 구간 제외)' : '예상 자동차 이동 거리/시간'}
           </div>
           <div className="text-xs font-bold text-slate-100 flex items-center gap-2 mt-0.5">
             {hasDrivingRoutes ? (
