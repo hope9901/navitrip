@@ -80,7 +80,7 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
 
   const getHeightClass = () => {
     if (sheetState === 'peek') return 'h-[92px]';
-    if (sheetState === 'full') return 'h-[calc(100dvh-54px)]';
+    if (sheetState === 'full') return 'h-[calc(100dvh-80px)]'; // 상단 바(MobileTopBar) 아래까지
     return 'h-[52dvh]';
   };
 

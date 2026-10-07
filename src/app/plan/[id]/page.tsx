@@ -13,7 +13,7 @@ import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRe
 import { loadPlanFromDB, LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 import { createRouteSignature } from '@/lib/routeSignature';
 import { applyTravelModes } from '@/lib/travelMode';
-import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
+import MobileTopBar from '@/components/common/MobileTopBar';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 interface PlanPageProps {
@@ -548,19 +548,30 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
         />
       </aside>
 
-      {/* Mobile Dedicated Route Summary Card (Normal document flow, visible on mobile only) */}
-      <div className="shrink-0 md:hidden w-full z-10">
-        <RouteSummaryCard
-          routes={routes}
-          routeSource={routeSource}
-          calculatedAt={calculatedAt}
-          onForceRefreshRoute={handleForceRefreshRoute}
-          isRefreshingRoute={isRefreshingRoute}
-          refreshCooldownSeconds={refreshCooldownSeconds}
-          variant="mobile"
-          blockCount={currentBlocks.length}
-        />
-      </div>
+      {/* Mobile Top Bar: 제목 · 공유 · ⋯ 일정 관리 메뉴 */}
+      <MobileTopBar
+        planTitle={planTitle}
+        setPlanTitle={setPlanTitle}
+        days={days}
+        setDays={setDays}
+        activeDayIndex={activeDayIndex}
+        setActiveDayIndex={handleActiveDayChange}
+        routes={routes}
+        drivingRoutes={drivingRoutes}
+        planId={currentPlanId}
+        authorName={authorName}
+        userName={userName}
+        onChangeUserName={() => setIsChangeNameMode(true)}
+        onPlanSaved={handlePlanSaved}
+        onLoadPlan={handleLoadPlan}
+        onNewPlan={handleNewPlan}
+        onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
+        onRequestMapView={() => mapRef.current?.getMapView() || null}
+        loadedPlanIdentity={loadedPlanIdentity}
+        onForceRefreshRoute={handleForceRefreshRoute}
+        isRefreshingRoute={isRefreshingRoute}
+        refreshCooldownSeconds={refreshCooldownSeconds}
+      />
 
       {/* Main Map View Area */}
       <main className="flex-1 relative h-full w-full bg-slate-900 overflow-hidden">
