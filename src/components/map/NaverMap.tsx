@@ -514,14 +514,16 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         if (route.path && route.path.length > 0) {
           const linePath = route.path.map(([lat, lng]) => new naver.maps.LatLng(lat, lng));
           const isFallback = route.isFallback || route.source === 'fallback';
+          const isWalking = route.travelMode === 'walking';
 
           const polyline = new naver.maps.Polyline({
             map: mapInstance.current!,
             path: linePath,
-            strokeColor: isFallback ? '#94a3b8' : '#10b981',
-            strokeWeight: isFallback ? 4 : 5,
-            strokeOpacity: isFallback ? 0.6 : 0.85,
-            strokeStyle: isFallback ? 'dash' : 'solid',
+            strokeColor: isWalking ? '#0ea5e9' : isFallback ? '#94a3b8' : '#10b981',
+            strokeWeight: isFallback && !isWalking ? 4 : 5,
+            strokeOpacity: isFallback && !isWalking ? 0.6 : 0.85,
+            strokeStyle: isWalking ? 'shortdot' : isFallback ? 'dash' : 'solid',
+            strokeLineCap: isWalking ? 'round' : 'butt',
           });
           polylinesRef.current.push(polyline);
         }
@@ -562,7 +564,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         <button
           type="button"
           onClick={fitAllBounds}
-          className="absolute top-4 left-4 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold shadow-xl z-20 flex items-center gap-1.5 transition-all active:scale-95 min-h-[38px]"
+          className="absolute top-[84px] md:top-4 left-4 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold shadow-xl z-20 flex items-center gap-1.5 transition-all active:scale-95 min-h-[38px]"
           title="전체 일정 장소 지도에 한눈에 보기"
         >
           <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -579,7 +581,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
       {/* Map Auth Error Banner */}
       {mapError && (
-        <div className="absolute top-4 left-4 right-4 bg-slate-900/95 border border-rose-500/50 backdrop-blur-md text-rose-200 text-xs p-4 rounded-2xl z-20 flex items-start gap-3 shadow-2xl">
+        <div className="absolute top-[84px] md:top-4 left-4 right-4 bg-slate-900/95 border border-rose-500/50 backdrop-blur-md text-rose-200 text-xs p-4 rounded-2xl z-20 flex items-start gap-3 shadow-2xl">
           <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
           <div className="flex flex-col gap-1">
             <h4 className="font-bold text-rose-300 text-sm">네이버 지도 인증 실패</h4>
@@ -590,7 +592,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
       {/* Coordinate Warning Alert Banner */}
       {coordWarning && (
-        <div className="absolute top-16 left-4 right-4 bg-amber-500/10 border border-amber-500/40 backdrop-blur-md text-amber-200 text-xs p-3 rounded-xl z-20 flex items-center gap-2 shadow-xl animate-fadeIn">
+        <div className="absolute top-[180px] md:top-16 left-4 right-4 bg-amber-500/10 border border-amber-500/40 backdrop-blur-md text-amber-200 text-xs p-3 rounded-xl z-20 flex items-center gap-2 shadow-xl animate-fadeIn">
           <Info className="w-4 h-4 text-amber-400 shrink-0" />
           <span>{coordWarning}</span>
         </div>
@@ -598,7 +600,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
       {/* Driving Route Failure / Fallback Notice */}
       {(hasFallbackRoute || routeErrorMessage) && !mapError && (
-        <div className="absolute top-4 right-14 md:right-14 bg-slate-900/90 border border-slate-700 backdrop-blur-md text-slate-300 text-xs px-3 py-2 rounded-xl z-20 flex items-center gap-2 shadow-lg max-w-[260px] md:max-w-none truncate">
+        <div className="absolute top-[132px] left-4 right-4 md:top-4 md:left-auto md:right-14 bg-slate-900/90 border border-slate-700 backdrop-blur-md text-slate-300 text-xs px-3 py-2 rounded-xl z-20 flex items-center gap-2 shadow-lg md:max-w-none truncate">
           <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />
           <span className="truncate">{routeErrorMessage || '자동차 경로를 불러오지 못해 직선거리만 표시합니다.'}</span>
         </div>
@@ -613,7 +615,6 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
           onForceRefreshRoute={onForceRefreshRoute}
           isRefreshingRoute={isRefreshingRoute}
           refreshCooldownSeconds={refreshCooldownSeconds}
-          variant="desktop"
           blockCount={blocks.length}
         />
       </div>

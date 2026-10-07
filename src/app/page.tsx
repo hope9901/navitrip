@@ -4,11 +4,14 @@ import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore, useC
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import NaverMap, { NaverMapRefHandle } from '@/components/map/NaverMap';
 import Toast from '@/components/common/Toast';
-import MobileBottomSheet, { MobilePanelTab, MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
+import MobileBottomSheet, { MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
+import MobileSearchScreen from '@/components/search/MobileSearchScreen';
 import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
 import { createRouteSignature } from '@/lib/routeSignature';
-import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
+import { applyTravelModes } from '@/lib/travelMode';
+import { useHistoryOverlay } from '@/lib/useHistoryOverlay';
+import MobileTopBar from '@/components/common/MobileTopBar';
 import { LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 
 const emptySubscribe = () => () => {};
@@ -54,7 +57,9 @@ export default function HomePage() {
 
   const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>('search');
+  const searchOverlay = useHistoryOverlay<'search'>('navitripSearch');
+  const isMobileSearchOpen = searchOverlay.overlay === 'search';
+  const [mobileSearchSession, setMobileSearchSession] = useState(0);
   const [mobileSheetState, setMobileSheetState] = useState<MobileSheetState>('half');
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -99,10 +104,25 @@ export default function HomePage() {
   const activeDay = days[activeDayIndex] || { day: 1, blocks: [] };
   const currentBlocks = useMemo(() => activeDay.blocks || [], [activeDay.blocks]);
 
-  const routes = useMemo(() => {
+  // 자동차 경로(원본)와, 블록별 이동 수단(도보) 선택을 반영한 표시용 경로
+  const drivingRoutes = useMemo(() => {
     if (currentBlocks.length < 2) return [];
     return fetchedRoutes;
   }, [currentBlocks.length, fetchedRoutes]);
+  const routes = useMemo(() => applyTravelModes(currentBlocks, drivingRoutes), [currentBlocks, drivingRoutes]);
+
+  // 이동 수단 변경은 좌표 순서와 무관하므로 경로 재요청 기준을 좌표 문자열로 메모이즈
+  const waypointsKey = currentBlocks.map((b) => `${b.place.lat},${b.place.lng}`).join('|');
+  const waypoints = useMemo(
+    () =>
+      waypointsKey
+        ? waypointsKey.split('|').map((pair) => {
+            const [lat, lng] = pair.split(',').map(Number);
+            return { lat, lng };
+          })
+        : [],
+    [waypointsKey]
+  );
 
   // Fetch or Restore Directions with Caching & 800ms Debounce
   useEffect(() => {
@@ -113,7 +133,7 @@ export default function HomePage() {
       abortControllerRef.current.abort();
     }
 
-    if (currentBlocks.length < 2) {
+    if (waypoints.length < 2) {
       const timer = setTimeout(() => {
         setFetchedRoutes([]);
         setRouteSource(null);
@@ -122,10 +142,6 @@ export default function HomePage() {
       return () => clearTimeout(timer);
     }
 
-    const waypoints = currentBlocks.map((b) => ({
-      lat: b.place.lat,
-      lng: b.place.lng,
-    }));
     const currentSig = createRouteSignature({ waypoints, option: 'trafast', mode: 'driving', version: 1 });
 
     // Step 1: Check if activeDay has a valid savedRoute summary matching signature
@@ -204,7 +220,7 @@ export default function HomePage() {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       controller.abort();
     };
-  }, [currentBlocks, activeDay.savedRoute]);
+  }, [waypoints, activeDay.savedRoute]);
 
   // Manual Force Refresh Route Handler
   const handleForceRefreshRoute = useCallback(async () => {
@@ -271,6 +287,7 @@ export default function HomePage() {
   }, [currentBlocks, isRefreshingRoute, refreshCooldownSeconds, activeDayIndex]);
 
   const handleSelectBlock = (block: ItineraryBlock) => {
+    setSelectedSearchPlace(null);
     setSelectedPlace(block.place);
     setSelectedBlockId(block.id);
     setFocusRequest({
@@ -299,6 +316,27 @@ export default function HomePage() {
       source: 'search',
     });
     setMobileSheetState('peek');
+  };
+
+  // 모바일 전체 화면 검색 (브라우저/안드로이드 뒤로가기로 닫힘)
+  const openMobileSearch = (resume = false) => {
+    setSelectedSearchPlace(null);
+    if (!resume) setMobileSearchSession((n) => n + 1);
+    searchOverlay.open('search');
+  };
+
+  const closeMobileSearch = () => {
+    void searchOverlay.close();
+  };
+
+  const handleSelectMobileSearchPlace = (place: Place) => {
+    handleSelectSearchPlace(place);
+    closeMobileSearch();
+  };
+
+  const handleShowItineraryFromSearch = () => {
+    setMobileSheetState('half');
+    closeMobileSearch();
   };
 
   const handleAddPlaceFromSearch = (place: Place) => {
@@ -420,6 +458,7 @@ export default function HomePage() {
           setActiveDayIndex={handleActiveDayChange}
           onSelectBlock={handleSelectBlock}
           routes={routes}
+          drivingRoutes={drivingRoutes}
           planId={planId}
           authorName={authorName}
           userName={userName}
@@ -434,19 +473,30 @@ export default function HomePage() {
         />
       </aside>
 
-      {/* Mobile Dedicated Route Summary Card (Normal document flow, visible on mobile only) */}
-      <div className="shrink-0 md:hidden w-full z-10">
-        <RouteSummaryCard
-          routes={routes}
-          routeSource={routeSource}
-          calculatedAt={calculatedAt}
-          onForceRefreshRoute={handleForceRefreshRoute}
-          isRefreshingRoute={isRefreshingRoute}
-          refreshCooldownSeconds={refreshCooldownSeconds}
-          variant="mobile"
-          blockCount={currentBlocks.length}
-        />
-      </div>
+      {/* Mobile Top Bar: 제목 · 공유 · ⋯ 일정 관리 메뉴 */}
+      <MobileTopBar
+        planTitle={planTitle}
+        setPlanTitle={setPlanTitle}
+        days={days}
+        setDays={setDays}
+        activeDayIndex={activeDayIndex}
+        setActiveDayIndex={handleActiveDayChange}
+        routes={routes}
+        drivingRoutes={drivingRoutes}
+        planId={planId}
+        authorName={authorName}
+        userName={userName}
+        onChangeUserName={() => setIsChangeNameMode(true)}
+        onPlanSaved={handlePlanSaved}
+        onLoadPlan={handleLoadPlan}
+        onNewPlan={handleNewPlan}
+        onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
+        onRequestMapView={() => mapRef.current?.getMapView() || null}
+        loadedPlanIdentity={loadedPlanIdentity}
+        onForceRefreshRoute={handleForceRefreshRoute}
+        isRefreshingRoute={isRefreshingRoute}
+        refreshCooldownSeconds={refreshCooldownSeconds}
+      />
 
       {/* Main Map View Area */}
       <main className="flex-1 relative h-full w-full bg-slate-900 overflow-hidden">
@@ -482,6 +532,7 @@ export default function HomePage() {
           setActiveDayIndex={handleActiveDayChange}
           onSelectBlock={handleSelectBlock}
           routes={routes}
+          drivingRoutes={drivingRoutes}
           planId={planId}
           authorName={authorName}
           userName={userName}
@@ -491,17 +542,29 @@ export default function HomePage() {
           onNewPlan={handleNewPlan}
           onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
           onRequestMapView={() => mapRef.current?.getMapView() || null}
-          onSelectSearchPlace={handleSelectSearchPlace}
+          onOpenSearch={() => openMobileSearch()}
+          onReturnToSearch={() => openMobileSearch(true)}
           selectedSearchPlace={selectedSearchPlace}
           onClearSelectedSearchPlace={() => setSelectedSearchPlace(null)}
           onAddPlaceFromSearch={handleAddPlaceFromSearch}
-          mobilePanelTab={mobilePanelTab}
-          setMobilePanelTab={setMobilePanelTab}
           mobileSheetState={mobileSheetState}
           setMobileSheetState={setMobileSheetState}
           loadedPlanIdentity={loadedPlanIdentity}
         />
       </div>
+
+      {/* Mobile Full-screen Place Search */}
+      <MobileSearchScreen
+        isOpen={isMobileSearchOpen}
+        sessionId={mobileSearchSession}
+        days={days}
+        activeDayIndex={activeDayIndex}
+        onChangeDay={handleActiveDayChange}
+        onAddPlace={handleAddPlaceFromSearch}
+        onSelectPlace={handleSelectMobileSearchPlace}
+        onClose={closeMobileSearch}
+        onShowItinerary={handleShowItineraryFromSearch}
+      />
 
       {/* User Name Entrance / Edit Modal */}
       <UserNameModal

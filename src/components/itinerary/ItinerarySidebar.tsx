@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useId, useSyncExternalStore } from 'react';
+import React, { useState, useId } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -16,9 +16,11 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView } from '@/types/itinerary';
-import { createRouteSignature } from '@/lib/routeSignature';
+import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView, TravelMode } from '@/types/itinerary';
+import { countWalkingSegments } from '@/lib/travelMode';
 import SortableBlockItem from './SortableBlockItem';
+import SavedPlansModals from './SavedPlansModals';
+import { usePlanActions } from './usePlanActions';
 import PlaceSearchCard from '../search/PlaceSearchCard';
 import {
   Plus,
@@ -31,26 +33,12 @@ import {
   Save,
   FolderOpen,
   FolderPlus,
-  Loader2,
-  X,
-  Clock,
   User,
   Edit3,
   ShieldCheck,
-  Trash2,
   AlertTriangle,
 } from 'lucide-react';
-import {
-  savePlanToDB,
-  loadPlanFromDB,
-  listSavedPlansFromDB,
-  deletePlanFromDB,
-  SavedPlanSummary,
-  LoadedPlanIdentity,
-  PlanSaveResult,
-  normalizePlanTitle,
-  normalizeUserName,
-} from '@/lib/supabase';
+import { LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 
 interface ItinerarySidebarProps {
   planTitle: string;
@@ -61,6 +49,7 @@ interface ItinerarySidebarProps {
   setActiveDayIndex: (idx: number) => void;
   onSelectBlock: (block: ItineraryBlock) => void;
   routes: RouteSegment[];
+  drivingRoutes?: RouteSegment[]; // 이동 수단 선택 반영 전 자동차 경로 (저장 및 차량/도보 비교용)
   planId?: string;
   authorName?: string;
   userName?: string;
@@ -75,15 +64,6 @@ interface ItinerarySidebarProps {
   loadedPlanIdentity?: LoadedPlanIdentity | null;
 }
 
-const emptySubscribe = () => () => {};
-function useIsMounted() {
-  return useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
-  );
-}
-
 export default function ItinerarySidebar({
   planTitle,
   setPlanTitle,
@@ -93,6 +73,7 @@ export default function ItinerarySidebar({
   setActiveDayIndex,
   onSelectBlock,
   routes,
+  drivingRoutes,
   planId,
   authorName,
   userName = '사용자',
@@ -106,38 +87,44 @@ export default function ItinerarySidebar({
   isMobileMode = false,
   loadedPlanIdentity,
 }: ItinerarySidebarProps) {
-  const isMounted = useIsMounted();
   const titleInputId = useId();
   const dndContextId = useId();
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [copiedShareUrl, setCopiedShareUrl] = useState(false);
-  const [isJustSaved, setIsJustSaved] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [titleError, setTitleError] = useState<string | null>(null);
   const [pendingDeleteDayIdx, setPendingDeleteDayIdx] = useState<number | null>(null);
 
-  // Load Saved Plans Modal State
-  const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
-  const [savedPlansList, setSavedPlansList] = useState<SavedPlanSummary[]>([]);
-  const [loadingPlansList, setLoadingPlansList] = useState(false);
-  const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
-
-  // Deletion Confirmation Modal State
-  const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<SavedPlanSummary | null>(null);
-
-  const normalizedUser = (userName || '').trim().toLowerCase();
-  const isAdmin = isMounted && (normalizedUser === 'admin' || userName.trim() === '어드민');
-
-  const currentNormTitle = normalizePlanTitle(planTitle);
-  const loadedNormTitle = loadedPlanIdentity ? normalizePlanTitle(loadedPlanIdentity.title) : null;
-  const isTitleChanged = loadedPlanIdentity ? currentNormTitle !== loadedNormTitle : false;
-
-  const currentNormAuthor = normalizeUserName(userName);
-  const loadedNormAuthor = loadedPlanIdentity ? normalizeUserName(loadedPlanIdentity.authorName) : null;
-  const isAuthorChanged = loadedPlanIdentity ? currentNormAuthor !== loadedNormAuthor : Boolean(authorName && authorName !== userName && !isAdmin);
-
-  const isSharedOriginal = isAuthorChanged;
+  const planActions = usePlanActions({
+    planTitle,
+    setPlanTitle,
+    days,
+    setDays,
+    activeDayIndex,
+    setActiveDayIndex,
+    routes,
+    drivingRoutes,
+    planId,
+    authorName,
+    userName,
+    onPlanSaved,
+    onLoadPlan,
+    onNewPlan,
+    onDeleteCurrentActivePlan,
+    onRequestMapView,
+    loadedPlanIdentity,
+  });
+  const {
+    isAdmin,
+    isSaving,
+    copiedShareUrl,
+    isJustSaved,
+    saveMessage,
+    titleError,
+    setTitleError,
+    isTitleChanged,
+    isSharedOriginal,
+    saveButtonLabel,
+    executeSaveOrShare,
+    handleOpenLoadModal,
+  } = planActions;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -198,6 +185,17 @@ export default function ItinerarySidebar({
     });
   };
 
+  const handleChangeTravelMode = (blockId: string, mode: TravelMode) => {
+    setDays((prev) => {
+      const next = [...prev];
+      next[activeDayIndex] = {
+        ...next[activeDayIndex],
+        blocks: next[activeDayIndex].blocks.map((b) => (b.id === blockId ? { ...b, travelModeToNext: mode } : b)),
+      };
+      return next;
+    });
+  };
+
   const handleAddDay = () => {
     setDays((prev) => [
       ...prev,
@@ -222,195 +220,23 @@ export default function ItinerarySidebar({
     setPendingDeleteDayIdx(null);
   };
 
+  // 탭을 누르면 해당 날로 이동만 한다 (삭제는 ✕ 버튼을 두 번 눌러 확인)
   const handleDayTabClick = (idx: number) => {
-    if (pendingDeleteDayIdx === idx) {
-      handleRemoveDay(idx);
-      return;
-    }
-
-    if (activeDayIndex === idx && days.length > 1) {
-      setPendingDeleteDayIdx(idx);
-    } else {
-      setActiveDayIndex(idx);
-      setPendingDeleteDayIdx(null);
-    }
-  };
-
-  const handleOpenLoadModal = async () => {
-    setIsLoadModalOpen(true);
-    setLoadingPlansList(true);
-    try {
-      const list = await listSavedPlansFromDB(userName);
-      setSavedPlansList(list);
-    } catch (err) {
-      console.error('Failed to list saved plans:', err);
-    } finally {
-      setLoadingPlansList(false);
-    }
-  };
-
-  const handleSelectSavedPlan = async (selectedId: string) => {
-    setLoadingPlansList(true);
-    try {
-      const plan = await loadPlanFromDB(selectedId);
-      if (plan) {
-        if (onLoadPlan) {
-          onLoadPlan(plan);
-        } else {
-          setPlanTitle(plan.title || '불러온 여행 일정');
-          if (plan.days && plan.days.length > 0) {
-            setDays(plan.days);
-            setActiveDayIndex(0);
-          }
-        }
-        setIsLoadModalOpen(false);
-        setSaveMessage(`'${plan.title}' 일정을 성공적으로 불러왔습니다!`);
-        setTimeout(() => setSaveMessage(null), 3000);
-      }
-    } catch (err) {
-      console.error('Failed to load selected plan:', err);
-    } finally {
-      setLoadingPlansList(false);
-    }
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!confirmDeleteTarget) return;
-    const target = confirmDeleteTarget;
-    setDeletingPlanId(target.id);
-    try {
-      await deletePlanFromDB(target.id, userName);
-
-      setSavedPlansList((prev) => prev.filter((item) => item.id !== target.id));
-      setConfirmDeleteTarget(null);
-
-      // If active current open plan was deleted, reset workspace
-      if (planId === target.id) {
-        if (onDeleteCurrentActivePlan) {
-          onDeleteCurrentActivePlan();
-        } else if (onNewPlan) {
-          onNewPlan();
-        }
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '삭제 중 오류가 발생했습니다.';
-      alert(`일정 삭제 실패: ${msg}`);
-    } finally {
-      setDeletingPlanId(null);
-    }
-  };
-
-  const validateTitle = (): boolean => {
-    if (!planTitle || !planTitle.trim()) {
-      setTitleError('여행 일정 이름을 입력해 주세요.');
-      return false;
-    }
-    setTitleError(null);
-    return true;
-  };
-
-  const prepareDaysWithSavedRoutes = (): DayItinerary[] => {
-    return days.map((d, idx) => {
-      if (idx === activeDayIndex && routes && routes.length > 0) {
-        const waypoints = (d.blocks || []).map((b) => ({ lat: b.place.lat, lng: b.place.lng }));
-        if (waypoints.length >= 2) {
-          const totalDist = routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
-          const totalDur = routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
-          const routeSig = createRouteSignature({ waypoints, option: 'trafast', mode: 'driving', version: 1 });
-
-          return {
-            ...d,
-            savedRoute: {
-              routeSignature: routeSig,
-              distanceMeter: totalDist,
-              durationSeconds: totalDur,
-              calculatedAt: new Date().toISOString(),
-              expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-              source: 'saved' as const,
-              segments: routes,
-            },
-          };
-        }
-      }
-      return d;
-    });
-  };
-
-  const executeSaveOrShare = async (action: 'save' | 'share') => {
-    if (!validateTitle()) return;
-
-    setIsSaving(true);
-    try {
-      const currentMapView = onRequestMapView ? onRequestMapView() || undefined : undefined;
-      const daysToSave = prepareDaysWithSavedRoutes();
-
-      const result = await savePlanToDB({
-        plan: {
-          id: planId,
-          title: planTitle.trim(),
-          authorName: userName,
-          mapView: currentMapView,
-          days: daysToSave,
-        },
-        loadedPlanIdentity,
-        currentUserName: userName,
-      });
-
-      if (onPlanSaved) {
-        onPlanSaved(result);
-      }
-
-      if (action === 'save') {
-        setIsJustSaved(true);
-        setSaveMessage(result.message);
-        setTimeout(() => {
-          setIsJustSaved(false);
-          setSaveMessage(null);
-        }, 3500);
-      } else if (action === 'share') {
-        if (result.isLocalFallback) {
-          setSaveMessage('Supabase 설정 전이므로 공유 링크 생성이 제한됩니다. (로컬 저장 완료)');
-          return;
-        }
-
-        const shareUrl = `${window.location.origin}/plan/${result.id}`;
-        await navigator.clipboard.writeText(shareUrl);
-        setCopiedShareUrl(true);
-        setSaveMessage(`공유 링크가 복사되었습니다! (${result.message})`);
-
-        setTimeout(() => {
-          setCopiedShareUrl(false);
-          setSaveMessage(null);
-        }, 3500);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
-      console.error('Save/Share plan error:', err);
-      setTitleError(msg);
-      setSaveMessage(msg);
-    } finally {
-      setIsSaving(false);
-    }
+    setActiveDayIndex(idx);
+    setPendingDeleteDayIdx(null);
   };
 
   const totalDayDistance = routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
   const totalDayDurationSec = routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
-
-  let saveButtonLabel = '저장';
-  if (isJustSaved) {
-    saveButtonLabel = '저장완료';
-  } else if (isSharedOriginal) {
-    saveButtonLabel = '내 일정으로 저장';
-  } else if (isTitleChanged) {
-    saveButtonLabel = '새 이름으로 저장';
-  } else if (!loadedPlanIdentity || !planId) {
-    saveButtonLabel = '새 일정 저장';
-  } else {
-    saveButtonLabel = '저장';
-  }
+  // 도보 구간은 시간·거리 정보가 없어 합계에서 제외된다
+  const walkingSegmentCount = countWalkingSegments(routes);
+  const hasDrivingSegments = routes.length > walkingSegmentCount;
 
   return (
     <div className="flex flex-col h-full bg-slate-950/95 backdrop-blur-xl border-r border-slate-800 text-slate-100 p-4 gap-3 overflow-hidden relative">
+      {/* 1. Plan Toolbar & Title (모바일에서는 상단 바와 ⋯ 메뉴로 대체) */}
+      {!isMobileMode && (
+        <>
       {/* 1. Top Toolbar Action Buttons Row (가장 상단) */}
       <div className="flex items-center justify-between gap-1.5 pb-2 border-b border-slate-800/80 shrink-0">
         <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
@@ -562,8 +388,11 @@ export default function ItinerarySidebar({
         )}
       </div>
 
+        </>
+      )}
+
       {/* Day Selector Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-800/80 custom-scrollbar shrink-0">
+      <div className="flex items-center gap-2 md:gap-1.5 overflow-x-auto pt-2 pr-2 md:pt-1 pb-2 md:pb-1 border-b border-slate-800/80 custom-scrollbar shrink-0">
         {days.map((dayItem, idx) => {
           const isPendingDelete = pendingDeleteDayIdx === idx;
           const isActive = activeDayIndex === idx;
@@ -573,7 +402,7 @@ export default function ItinerarySidebar({
               <button
                 type="button"
                 onClick={() => handleDayTabClick(idx)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                className={`flex items-center gap-1 px-3.5 md:px-3 min-h-[40px] md:min-h-0 md:py-1.5 rounded-xl text-sm md:text-xs font-bold transition-all ${
                   isPendingDelete
                     ? 'bg-rose-600 text-white border border-rose-500 shadow-md animate-pulse ring-2 ring-rose-500/50'
                     : isActive
@@ -582,7 +411,7 @@ export default function ItinerarySidebar({
                 }`}
               >
                 <Calendar className="w-3 h-3" />
-                <span>{isPendingDelete ? `Day ${idx + 1} 삭제` : `Day ${idx + 1}`}</span>
+                <span>{isPendingDelete ? `Day ${idx + 1} 삭제할까요?` : `Day ${idx + 1}`}</span>
               </button>
               {days.length > 1 && (
                 <button
@@ -595,7 +424,8 @@ export default function ItinerarySidebar({
                       setPendingDeleteDayIdx(idx);
                     }
                   }}
-                  className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center transition-all text-[10px] ${
+                  aria-label={isPendingDelete ? `Day ${idx + 1} 삭제 확인` : `Day ${idx + 1} 삭제`}
+                  className={`absolute -top-2 -right-2 md:-top-1 md:-right-1 w-6 h-6 md:w-4 md:h-4 rounded-full flex items-center justify-center transition-all text-[11px] md:text-[10px] ${
                     isPendingDelete
                       ? 'bg-rose-500 text-white ring-2 ring-white opacity-100'
                       : 'bg-slate-800 hover:bg-rose-500 text-slate-400 hover:text-white opacity-80 md:opacity-0 group-hover:opacity-100'
@@ -612,7 +442,7 @@ export default function ItinerarySidebar({
         <button
           type="button"
           onClick={handleAddDay}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-900/60 hover:bg-slate-800 text-emerald-400 border border-dashed border-emerald-500/40 transition-all shrink-0"
+          className="flex items-center gap-1 px-3 md:px-2.5 min-h-[40px] md:min-h-0 md:py-1.5 rounded-xl text-sm md:text-xs font-semibold bg-slate-900/60 hover:bg-slate-800 text-emerald-400 border border-dashed border-emerald-500/40 transition-all shrink-0"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>일차 추가</span>
@@ -640,12 +470,17 @@ export default function ItinerarySidebar({
           {routes.length > 0 && (
             <span className="text-emerald-400 font-semibold flex items-center gap-1">
               <Navigation className="w-3 h-3" />
-              <span>
-                {totalDayDistance >= 1000 ? `${(totalDayDistance / 1000).toFixed(1)}km` : `${totalDayDistance}m`}
-                {' / '}
-                {Math.floor(totalDayDurationSec / 3600) > 0 ? `${Math.floor(totalDayDurationSec / 3600)}시간 ` : ''}
-                {Math.ceil((totalDayDurationSec % 3600) / 60)}분
-              </span>
+              {hasDrivingSegments ? (
+                <span>
+                  {totalDayDistance >= 1000 ? `${(totalDayDistance / 1000).toFixed(1)}km` : `${totalDayDistance}m`}
+                  {' / '}
+                  {Math.floor(totalDayDurationSec / 3600) > 0 ? `${Math.floor(totalDayDurationSec / 3600)}시간 ` : ''}
+                  {Math.ceil((totalDayDurationSec % 3600) / 60)}분
+                  {walkingSegmentCount > 0 && <span className="text-slate-400 font-normal"> (도보 제외)</span>}
+                </span>
+              ) : (
+                <span>모두 도보 이동</span>
+              )}
             </span>
           )}
         </div>
@@ -657,7 +492,11 @@ export default function ItinerarySidebar({
           <div className="flex flex-col items-center justify-center py-12 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl p-6 gap-2">
             <MapPin className="w-8 h-8 text-slate-600" />
             <p className="text-xs font-medium">아직 등록된 장소가 없습니다.</p>
-            <p className="text-[11px] text-slate-600">위 검색창에서 가고 싶은 곳을 검색한 후 [일정에 추가] 버튼을 눌러보세요.</p>
+            <p className="text-[11px] text-slate-600">
+              {isMobileMode
+                ? '[장소 추가] 버튼을 눌러 가고 싶은 곳을 검색해 보세요.'
+                : '위 검색창에서 가고 싶은 곳을 검색한 후 [일정에 추가] 버튼을 눌러보세요.'}
+            </p>
           </div>
         ) : (
           <DndContext id={dndContextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -668,7 +507,9 @@ export default function ItinerarySidebar({
                     key={block.id}
                     block={block}
                     index={idx}
-                    routeToNext={routes[idx]}
+                    drivingToNext={(drivingRoutes ?? routes)[idx]}
+                    hasNext={idx < blocks.length - 1}
+                    onChangeTravelMode={handleChangeTravelMode}
                     onRemove={handleRemoveBlock}
                     onSelect={onSelectBlock}
                   />
@@ -679,131 +520,7 @@ export default function ItinerarySidebar({
         )}
       </div>
 
-      {/* Load Saved Plans Modal */}
-      {isLoadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-md p-5 flex flex-col gap-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2 text-white font-bold text-sm">
-                <FolderOpen className="w-4 h-4 text-sky-400" />
-                <span>
-                  {isAdmin ? '👑 [어드민 관리] 저장된 전체 여행 일정' : `[${userName}] 님의 저장된 여행 일정`}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsLoadModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-all"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-2 max-h-80 overflow-y-auto custom-scrollbar">
-              {loadingPlansList ? (
-                <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
-                  <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
-                  <span>{isAdmin ? '전체 저장 일정을 조회하는 중입니다...' : `'${userName}' 님의 저장된 일정을 조회하는 중입니다...`}</span>
-                </div>
-              ) : savedPlansList.length === 0 ? (
-                <div className="py-10 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
-                  {isAdmin ? '저장된 일정이 없습니다.' : `'${userName}' 님의 이름으로 저장된 일정이 없습니다.`}
-                </div>
-              ) : (
-                savedPlansList.map((planItem) => {
-                  const isDeletingThis = deletingPlanId === planItem.id;
-                  return (
-                    <div
-                      key={planItem.id}
-                      onClick={() => handleSelectSavedPlan(planItem.id)}
-                      className="p-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-xl transition-all flex items-center justify-between gap-3 cursor-pointer group shadow-sm hover:shadow-md"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <h4 className="text-xs font-bold text-slate-100 group-hover:text-sky-400 transition-colors truncate">
-                            {planItem.title}
-                          </h4>
-                          {planItem.authorName && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-700/80 text-slate-300">
-                              작성자: {planItem.authorName}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
-                          <span className="flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-emerald-400" />
-                            <span>장소 {planItem.placeCount}개</span>
-                          </span>
-                          {planItem.updatedAt && (
-                            <span className="flex items-center gap-1 text-slate-500">
-                              <Clock className="w-3 h-3" />
-                              <span>{new Date(planItem.updatedAt).toLocaleDateString('ko-KR')}</span>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => handleSelectSavedPlan(planItem.id)}
-                          className="px-2.5 py-1.5 bg-sky-600/90 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-all shrink-0 active:scale-95"
-                        >
-                          불러오기
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isDeletingThis}
-                          onClick={() => setConfirmDeleteTarget(planItem)}
-                          className="px-2 py-1.5 bg-rose-500/10 hover:bg-rose-600/90 border border-rose-500/30 text-rose-300 hover:text-white rounded-lg text-xs font-semibold transition-all shrink-0 active:scale-95 disabled:opacity-50"
-                          title="일정 삭제"
-                        >
-                          {isDeletingThis ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
-                          ) : (
-                            <Trash2 className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Deletion Confirmation Modal */}
-      {confirmDeleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
-          <div className="bg-slate-900 border border-rose-500/40 rounded-2xl w-full max-w-sm p-5 flex flex-col gap-4 shadow-2xl">
-            <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
-              <AlertTriangle className="w-5 h-5" />
-              <span>일정 삭제 확인</span>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              정말로 <strong className="text-white font-bold">&lsquo;{confirmDeleteTarget.title}&rsquo;</strong> 일정을 삭제하시겠습니까? 삭제된 일정은 복구할 수 없습니다.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setConfirmDeleteTarget(null)}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all"
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95"
-              >
-                삭제하기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SavedPlansModals actions={planActions} />
     </div>
   );
 }

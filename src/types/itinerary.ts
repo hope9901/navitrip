@@ -17,11 +17,14 @@ export interface Place {
   naverSearchQuery?: string;
 }
 
+export type TravelMode = 'driving' | 'walking';
+
 export interface ItineraryBlock {
   id: string; // unique block instance id
   place: Place;
   note?: string;
   dayIndex: number;
+  travelModeToNext?: TravelMode; // 다음 장소까지의 이동 수단 (기본값: driving)
 }
 
 export interface RouteSegment {
@@ -32,6 +35,7 @@ export interface RouteSegment {
   formattedDistance: string;
   formattedDuration: string;
   path?: Array<[number, number]>; // [lat, lng]
+  travelMode?: TravelMode;
   isFallback?: boolean;
   source?: 'live' | 'cache' | 'saved' | 'stale-cache' | 'naver' | 'fallback';
   cacheKey?: string;

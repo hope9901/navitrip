@@ -1,15 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useId } from 'react';
+import React, { useState, useEffect, useId, useRef } from 'react';
 import { Place } from '@/types/itinerary';
 import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
-import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, AlertCircle, X, Navigation, Check } from 'lucide-react';
+import { Search, MapPin, Plus, Loader2, AlertCircle, X, Navigation, Check } from 'lucide-react';
 
 interface PlaceSearchCardProps {
   onAddPlace: (place: Place) => void;
   onSelectPlace?: (place: Place) => void;
   addedPlaceIds?: string[];
   containerMode?: 'sidebar' | 'mobile-sheet';
+  focusSignal?: number; // 값이 바뀔 때마다 검색창에 포커스
 }
 
 export default function PlaceSearchCard({
@@ -17,8 +18,10 @@ export default function PlaceSearchCard({
   onSelectPlace,
   addedPlaceIds = [],
   containerMode = 'sidebar',
+  focusSignal,
 }: PlaceSearchCardProps) {
   const searchInputId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Place[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,6 +39,10 @@ export default function PlaceSearchCard({
       }
     };
   }, [containerMode]);
+
+  useEffect(() => {
+    if (focusSignal) inputRef.current?.focus();
+  }, [focusSignal]);
 
   const resetSearch = () => {
     setQuery('');
@@ -156,12 +163,14 @@ export default function PlaceSearchCard({
       <form onSubmit={handleSearch} className="relative w-full sticky top-0 z-10 bg-slate-950 pb-1">
         {/* Minimum 16px font size on mobile (text-base) to prevent iOS Safari auto-zoom */}
         <input
+          ref={inputRef}
           id={searchInputId}
           name="placeSearchQuery"
           type="text"
+          enterKeyHint="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="장소명 또는 도로명/지번 주소 입력 (예: 순천만국가정원, 성심당 본점)"
+          placeholder="장소명 또는 주소 (예: 순천만국가정원)"
           autoComplete="off"
           className="w-full pl-10 pr-24 py-3 md:py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-slate-100 placeholder-slate-400 text-base md:text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-inner min-h-[44px]"
         />
@@ -198,7 +207,7 @@ export default function PlaceSearchCard({
       {/* Search Results Drawer / Panel */}
       {hasSearched && (
         <div
-          className={`flex flex-col gap-2.5 custom-scrollbar ${
+          className={`flex flex-col custom-scrollbar ${
             containerMode === 'mobile-sheet'
               ? 'flex-1 min-h-0 overflow-y-auto pr-1 pb-6'
               : 'max-h-72 md:max-h-80 overflow-y-auto pr-1'
@@ -219,123 +228,62 @@ export default function PlaceSearchCard({
               일치하는 장소나 주소가 없습니다.
             </div>
           ) : (
-            results.map((place) => {
-              const isAddressType = place.type === 'address';
-              const naverSearchUrl = getNaverMapSearchUrl(place);
-              const added = isPlaceAdded(place);
+            <>
+              <p className="px-1 pb-1 text-xs text-slate-400">
+                검색 결과 {results.length}개 · 장소를 누르면 지도에서 위치를 볼 수 있어요
+              </p>
+              {results.map((place) => {
+                const isAddressType = place.type === 'address';
+                const added = isPlaceAdded(place);
+                const categoryLabel = isAddressType
+                  ? '주소'
+                  : place.category
+                  ? place.category.split('>').pop()?.trim() || place.category
+                  : '';
 
-              return (
-                <div
-                  key={place.id}
-                  onClick={(e) => handleFocusClick(e, place)}
-                  className="p-3.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-2xl transition-all flex flex-col gap-2.5 group shadow-sm hover:shadow-md cursor-pointer"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Type Badge */}
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            isAddressType
-                              ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                              : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          }`}
-                        >
-                          {isAddressType ? '주소' : '장소'}
-                        </span>
-
-                        <h4 className="font-bold text-slate-100 text-xs leading-snug break-words">
-                          {place.title}
-                        </h4>
-
-                        {/* Category */}
-                        {place.category && place.category !== '주소' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
-                            {place.category.split('>').pop()?.trim() || place.category}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Road & Jibun Address (Multi-line readable format) */}
-                      <div className="mt-2 flex flex-col gap-1 text-[11px] text-slate-300 leading-relaxed">
-                        {place.roadAddress && (
-                          <p className="flex items-start gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                            <span className="font-medium text-slate-200 break-words">[도로명] {place.roadAddress}</span>
-                          </p>
-                        )}
-                        {place.address && place.address !== place.roadAddress && (
-                          <p className="flex items-start gap-1 text-slate-400 pl-4 break-words">
-                            <span>[지번] {place.address}</span>
-                          </p>
-                        )}
-                      </div>
-
-                      {place.telephone && (
-                        <p className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1">
-                          <Phone className="w-3 h-3 shrink-0 text-slate-400" />
-                          <span>{place.telephone}</span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions Bar - Touch friendly 44px min targets */}
-                  <div
-                    className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-700/50 mt-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
-                      <button
-                        type="button"
-                        onClick={(e) => handleFocusClick(e, place)}
-                        className="inline-flex items-center justify-center gap-1 min-h-[44px] px-3 py-2 bg-slate-900/90 hover:bg-slate-900 rounded-xl text-xs font-semibold text-emerald-400 hover:text-emerald-300 border border-slate-700/80 transition-all active:scale-95"
-                        title="navitrip 지도에서 위치 보기"
-                      >
-                        <Navigation className="w-3.5 h-3.5" />
-                        <span>지도에서 보기</span>
-                      </button>
-
-                      {naverSearchUrl && (
-                        <a
-                          href={naverSearchUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center gap-1 min-h-[44px] px-3 py-2 bg-sky-950/40 hover:bg-sky-900/60 rounded-xl text-xs font-semibold text-sky-400 hover:text-sky-300 border border-sky-800/50 transition-all active:scale-95"
-                          title="네이버 지도 사진 및 리뷰 검색 새 탭 열기"
-                        >
-                          <span>네이버 리뷰</span>
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      )}
-                    </div>
-
+                return (
+                  <div key={place.id} className="flex items-center gap-2 border-b border-slate-800/80 last:border-b-0">
                     <button
                       type="button"
-                      onClick={(e) => handleAdd(e, place)}
-                      disabled={added}
-                      className={`inline-flex items-center justify-center gap-1 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 min-h-[44px] shrink-0 ${
-                        added
-                          ? 'bg-slate-800 text-slate-400 border border-slate-700/60 cursor-not-allowed opacity-80'
-                          : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                      }`}
+                      onClick={(e) => handleFocusClick(e, place)}
+                      className="flex-1 min-w-0 min-h-[64px] md:min-h-[56px] flex items-center gap-3 px-1 py-2 text-left rounded-xl hover:bg-slate-900/70 transition-colors"
                     >
-                      {added ? (
-                        <>
-                          <Check className="w-4 h-4 text-emerald-400" />
-                          <span>추가됨</span>
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-4 h-4" />
-                          <span>일정에 추가</span>
-                        </>
-                      )}
+                      <span
+                        className={`shrink-0 w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center ${
+                          isAddressType ? 'text-sky-400' : 'text-emerald-400'
+                        }`}
+                      >
+                        {isAddressType ? <Navigation className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}
+                      </span>
+                      <span className="flex flex-col min-w-0 gap-0.5">
+                        <span className="text-[15px] md:text-sm font-semibold text-slate-100 truncate">{place.title}</span>
+                        <span className="text-xs text-slate-400 truncate">
+                          {categoryLabel && `${categoryLabel} · `}
+                          {place.roadAddress || place.address}
+                        </span>
+                      </span>
                     </button>
+
+                    {added ? (
+                      <span className="shrink-0 inline-flex items-center gap-1 min-h-[44px] px-2 text-sm md:text-xs font-semibold text-slate-400">
+                        <Check className="w-4 h-4 text-emerald-400" />
+                        추가됨
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => handleAdd(e, place)}
+                        aria-label={`${place.title} 일정에 추가`}
+                        className="shrink-0 inline-flex items-center gap-1 min-h-[44px] px-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 text-sm md:text-xs font-bold hover:bg-emerald-500/20 active:scale-95 transition-all"
+                      >
+                        <Plus className="w-4 h-4" />
+                        추가
+                      </button>
+                    )}
                   </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </>
           )}
         </div>
       )}

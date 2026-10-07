@@ -1,16 +1,50 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView } from '@/types/itinerary';
 import ItinerarySidebar from './ItinerarySidebar';
-import PlaceSearchCard from '../search/PlaceSearchCard';
 import SearchPlacePreviewCard from '../search/SearchPlacePreviewCard';
-import { ChevronUp, ChevronDown, List, Search, Calendar, Map } from 'lucide-react';
+import SharedItineraryView from './SharedItineraryView';
+import { ChevronUp, ChevronDown, Plus, Edit3 } from 'lucide-react';
+import { countWalkingSegments, formatDistance, formatDuration } from '@/lib/travelMode';
 
 import { LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 
-export type MobilePanelTab = 'search' | 'itinerary';
 export type MobileSheetState = 'peek' | 'half' | 'full';
+
+const SHEET_STATES: MobileSheetState[] = ['peek', 'half', 'full'];
+const DRAG_START_THRESHOLD_PX = 6;
+const FLICK_VELOCITY_PX_PER_MS = 0.5;
+
+// 아래 높이 클래스(getHeightClass)와 같은 기준의 픽셀 값
+function getSnapHeights(): Record<MobileSheetState, number> {
+  const vh = window.innerHeight;
+  return { peek: 92, half: Math.round(vh * 0.52), full: vh - 80 };
+}
+
+function pickSnapState(height: number, velocity: number): MobileSheetState {
+  const snaps = getSnapHeights();
+  // 빠르게 튕기면 그 방향의 다음 단계로, 아니면 가장 가까운 단계로
+  if (velocity < -FLICK_VELOCITY_PX_PER_MS) {
+    return SHEET_STATES.find((state) => snaps[state] > height + 1) ?? 'full';
+  }
+  if (velocity > FLICK_VELOCITY_PX_PER_MS) {
+    return [...SHEET_STATES].reverse().find((state) => snaps[state] < height - 1) ?? 'peek';
+  }
+  return SHEET_STATES.reduce((best, state) =>
+    Math.abs(snaps[state] - height) < Math.abs(snaps[best] - height) ? state : best
+  );
+}
+
+type SheetDrag = {
+  pointerId: number;
+  startY: number;
+  startHeight: number;
+  lastY: number;
+  lastTime: number;
+  velocity: number; // px/ms, 양수 = 아래로
+  moved: boolean;
+};
 
 interface MobileBottomSheetProps {
   planTitle: string;
@@ -21,6 +55,7 @@ interface MobileBottomSheetProps {
   setActiveDayIndex: (idx: number) => void;
   onSelectBlock: (block: ItineraryBlock) => void;
   routes: RouteSegment[];
+  drivingRoutes?: RouteSegment[];
   planId?: string;
   authorName?: string;
   userName?: string;
@@ -30,195 +65,249 @@ interface MobileBottomSheetProps {
   onNewPlan?: () => void;
   onDeleteCurrentActivePlan?: () => void;
   onRequestMapView?: () => SavedMapView | null;
-  onSelectSearchPlace?: (place: Place) => void;
+  onOpenSearch: () => void;
+  onReturnToSearch: () => void;
   selectedSearchPlace?: Place | null;
   onClearSelectedSearchPlace?: () => void;
   onAddPlaceFromSearch?: (place: Place) => void;
-  mobilePanelTab?: MobilePanelTab;
-  setMobilePanelTab?: (tab: MobilePanelTab) => void;
   mobileSheetState?: MobileSheetState;
   setMobileSheetState?: (state: MobileSheetState) => void;
   loadedPlanIdentity?: LoadedPlanIdentity | null;
+  readOnly?: boolean; // 공유받은 일정 보기 모드 (편집 도구 숨김)
+  onStartEditing?: () => void;
 }
 
+/**
+ * 모바일 하단 시트: 일정 보기/편집 전용.
+ * 장소 검색은 전체 화면(MobileSearchScreen)으로 분리되어 있고,
+ * 검색 결과를 지도에서 확인하는 동안에는 시트 대신 미리보기 카드를 보여준다.
+ */
 export default function MobileBottomSheet(props: MobileBottomSheetProps) {
-  const [internalTab, setInternalTab] = useState<MobilePanelTab>('search');
   const [internalState, setInternalState] = useState<MobileSheetState>('half');
-
-  const activeTab = props.mobilePanelTab !== undefined ? props.mobilePanelTab : internalTab;
-  const setActiveTab = props.setMobilePanelTab || setInternalTab;
 
   const sheetState = props.mobileSheetState !== undefined ? props.mobileSheetState : internalState;
   const setSheetState = props.setMobileSheetState || setInternalState;
 
+  // Drag-to-resize (헤더 영역을 끌어 높이 조절, 놓으면 가까운 단계로 스냅)
+  // 손가락/커서가 헤더 밖으로 나가도 추적되도록 이동·종료 이벤트는 window 에서 받는다.
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const suppressClickRef = useRef(false);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  const [dragHeight, setDragHeight] = useState<number | null>(null);
+
+  useEffect(() => () => dragCleanupRef.current?.(), []);
+
+  const clampHeight = (height: number) => {
+    const snaps = getSnapHeights();
+    return Math.min(snaps.full, Math.max(snaps.peek, height));
+  };
+
+  const handleDragPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    dragCleanupRef.current?.();
+    suppressClickRef.current = false;
+
+    const drag: SheetDrag = {
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      startHeight: sheetRef.current?.offsetHeight ?? 0,
+      lastY: e.clientY,
+      lastTime: e.timeStamp,
+      velocity: 0,
+      moved: false,
+    };
+
+    const handleMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== drag.pointerId) return;
+      const dy = ev.clientY - drag.startY;
+      if (!drag.moved) {
+        // 일정 거리 이상 움직였을 때만 끌기로 판단해서, 단순 탭은 버튼 클릭으로 그대로 동작
+        if (Math.abs(dy) < DRAG_START_THRESHOLD_PX) return;
+        drag.moved = true;
+      }
+      const dt = ev.timeStamp - drag.lastTime;
+      if (dt > 0) drag.velocity = (ev.clientY - drag.lastY) / dt;
+      drag.lastY = ev.clientY;
+      drag.lastTime = ev.timeStamp;
+      setDragHeight(clampHeight(drag.startHeight - dy));
+    };
+
+    const handleEnd = (ev: PointerEvent) => {
+      if (ev.pointerId !== drag.pointerId) return;
+      cleanup();
+      if (!drag.moved) return;
+      suppressClickRef.current = true;
+      const finalHeight = clampHeight(drag.startHeight - (ev.clientY - drag.startY));
+      setSheetState(pickSnapState(finalHeight, drag.velocity));
+      setDragHeight(null);
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleEnd);
+      window.removeEventListener('pointercancel', handleEnd);
+      dragCleanupRef.current = null;
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleEnd);
+    window.addEventListener('pointercancel', handleEnd);
+    dragCleanupRef.current = cleanup;
+  };
+
+  const handleHeaderClickCapture = (e: React.MouseEvent) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
   const currentDayBlocks = props.days[props.activeDayIndex]?.blocks || [];
   const currentDayPlaceIds = currentDayBlocks.map((b) => b.place.id);
 
-  // Height class mapping
+  const totalDistance = props.routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
+  const totalDuration = props.routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+  // 도보 구간은 시간·거리 정보가 없어 합계에서 제외된다
+  const walkingSegmentCount = countWalkingSegments(props.routes);
+  const hasDrivingSegments = props.routes.length > walkingSegmentCount;
+  const summary =
+    currentDayBlocks.length === 0
+      ? '아직 장소가 없어요'
+      : hasDrivingSegments
+      ? `${currentDayBlocks.length}곳 · ${formatDistance(totalDistance)} · ${formatDuration(Math.ceil(totalDuration / 60) * 60)}${
+          walkingSegmentCount > 0 ? ' (도보 제외)' : ''
+        }`
+      : walkingSegmentCount > 0
+      ? `${currentDayBlocks.length}곳 · 모두 도보 이동`
+      : `${currentDayBlocks.length}곳`;
+
+  // Search result preview mode (map focused on a search result)
+  if (props.selectedSearchPlace) {
+    return (
+      <div className="fixed inset-x-0 bottom-0 z-30 md:hidden rounded-t-3xl overflow-hidden border-t border-slate-800 shadow-2xl">
+        <SearchPlacePreviewCard
+          place={props.selectedSearchPlace}
+          onAddPlace={(place) => props.onAddPlaceFromSearch?.(place)}
+          isAlreadyAdded={currentDayPlaceIds.includes(props.selectedSearchPlace.id)}
+          targetDayLabel={`Day ${props.activeDayIndex + 1}`}
+          onReturnToSearch={props.onReturnToSearch}
+          onClose={props.onClearSelectedSearchPlace}
+        />
+      </div>
+    );
+  }
+
   const getHeightClass = () => {
-    if (sheetState === 'peek') return 'h-[110px]';
-    if (sheetState === 'full') return 'h-[calc(100dvh-54px)]';
-    return 'h-[48dvh]'; // half state
+    if (sheetState === 'peek') return 'h-[92px]';
+    if (sheetState === 'full') return 'h-[calc(100dvh-80px)]'; // 상단 바(MobileTopBar) 아래까지
+    return 'h-[52dvh]';
   };
 
-  const handleAddPlace = (place: Place) => {
-    if (props.onAddPlaceFromSearch) {
-      props.onAddPlaceFromSearch(place);
-    }
-  };
-
-  const handleSelectSearchPlaceOnMobile = (place: Place) => {
-    if (props.onSelectSearchPlace) {
-      props.onSelectSearchPlace(place);
-    }
-    // When "지도에서 보기" is clicked, collapse sheet to peek state so map is fully visible
-    setSheetState('peek');
-  };
-
-  const handleReturnToSearchResults = () => {
-    if (props.onClearSelectedSearchPlace) {
-      props.onClearSelectedSearchPlace();
-    }
-    setActiveTab('search');
-    setSheetState('half');
+  const cycleSheetState = () => {
+    if (sheetState === 'peek') setSheetState('half');
+    else if (sheetState === 'half') setSheetState('full');
+    else setSheetState('peek');
   };
 
   return (
     <div
-      aria-expanded={sheetState !== 'peek'}
-      className={`fixed inset-x-0 bottom-0 z-30 md:hidden transition-all duration-300 ease-in-out flex flex-col bg-slate-950/98 border-t border-slate-800 shadow-2xl rounded-t-3xl safe-pb ${getHeightClass()}`}
+      ref={sheetRef}
+      style={dragHeight !== null ? { height: dragHeight } : undefined}
+      className={`fixed inset-x-0 bottom-0 z-30 md:hidden flex flex-col bg-slate-950 border-t border-slate-800 shadow-2xl rounded-t-3xl safe-pb ${getHeightClass()} ${
+        dragHeight !== null ? '' : 'transition-[height] duration-300 ease-in-out'
+      }`}
     >
-      {/* Touch Handle & Quick Action Header */}
-      <div className="flex flex-col items-center justify-center pt-2 pb-1 px-4 cursor-pointer select-none border-b border-slate-900 shrink-0 min-h-[44px] bg-slate-950 rounded-t-3xl">
-        <div
+      {/* Handle & Header (drag area) */}
+      <div
+        onPointerDown={handleDragPointerDown}
+        onClickCapture={handleHeaderClickCapture}
+        className="shrink-0 px-4 pb-2 border-b border-slate-900 touch-none select-none"
+      >
+        <button
+          type="button"
           onClick={() => setSheetState(sheetState === 'peek' ? 'half' : 'peek')}
-          className="w-12 h-1.5 bg-slate-700 hover:bg-slate-500 rounded-full mb-1 transition-colors"
-          title="패널 높이 조절"
-        />
+          aria-label={sheetState === 'peek' ? '일정 목록 펼치기' : '일정 목록 접기'}
+          aria-expanded={sheetState !== 'peek'}
+          className="w-full h-6 flex items-center justify-center"
+        >
+          <span className="w-10 h-1.5 bg-slate-700 rounded-full" />
+        </button>
 
-        {/* Tab & View Mode Control Bar */}
-        <div className="flex items-center justify-between w-full text-xs font-bold text-slate-200">
-          {/* Tabs: Search vs Itinerary */}
-          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'search'}
-              onClick={() => {
-                setActiveTab('search');
-                if (sheetState === 'peek') setSheetState('half');
-              }}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all min-h-[36px] ${
-                activeTab === 'search'
-                  ? 'bg-emerald-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-              }`}
-            >
-              <Search className="w-3.5 h-3.5" />
-              <span>장소 검색</span>
-            </button>
-
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'itinerary'}
-              onClick={() => {
-                if (props.onClearSelectedSearchPlace) {
-                  props.onClearSelectedSearchPlace();
-                }
-                setActiveTab('itinerary');
-                if (sheetState === 'peek') setSheetState('half');
-              }}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all min-h-[36px] ${
-                activeTab === 'itinerary'
-                  ? 'bg-emerald-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>일정 ({currentDayBlocks.length})</span>
-            </button>
-          </div>
-
-          {/* Sheet State Quick Toggle Buttons */}
-          <div className="flex items-center gap-1">
-            {sheetState === 'peek' ? (
-              <button
-                type="button"
-                onClick={() => setSheetState('half')}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-semibold transition-all border border-slate-700 min-h-[36px]"
-              >
-                <List className="w-3.5 h-3.5" />
-                <span>목록 펼치기</span>
-              </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={cycleSheetState}
+            aria-label={sheetState === 'full' ? '일정 목록 접기' : '일정 목록 더 펼치기'}
+            className="flex-1 min-w-0 min-h-[48px] flex items-center gap-2 text-left"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-slate-100">Day {props.activeDayIndex + 1} 일정</div>
+              <div className="text-xs text-slate-400 truncate">{summary}</div>
+            </div>
+            {sheetState === 'full' ? (
+              <ChevronDown className="w-5 h-5 text-slate-400 shrink-0" />
             ) : (
-              <button
-                type="button"
-                onClick={() => setSheetState('peek')}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold transition-all border border-slate-700 min-h-[36px]"
-              >
-                <Map className="w-3.5 h-3.5" />
-                <span>지도 크게보기</span>
-              </button>
+              <ChevronUp className="w-5 h-5 text-slate-400 shrink-0" />
             )}
+          </button>
 
+          {props.readOnly ? (
             <button
               type="button"
-              onClick={() => {
-                if (sheetState === 'peek') setSheetState('half');
-                else if (sheetState === 'half') setSheetState('full');
-                else setSheetState('peek');
-              }}
-              aria-label={sheetState === 'full' ? '패널 축소' : '패널 확대'}
-              className="p-1.5 text-slate-400 hover:text-white min-w-[36px] min-h-[36px] flex items-center justify-center"
+              onClick={props.onStartEditing}
+              className="shrink-0 inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full bg-emerald-400 text-emerald-950 text-sm font-bold shadow-md active:scale-95 transition-transform"
             >
-              {sheetState === 'full' ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+              <Edit3 className="w-4 h-4" />
+              <span>내 일정으로 편집</span>
             </button>
-          </div>
+          ) : (
+            <button
+              type="button"
+              onClick={props.onOpenSearch}
+              className="shrink-0 inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full bg-emerald-400 text-emerald-950 text-sm font-bold shadow-md active:scale-95 transition-transform"
+            >
+              <Plus className="w-4 h-4" />
+              <span>장소 추가</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-hidden flex flex-col bg-slate-950 relative">
-        {/* Search Tab Panel (SINGLE MOUNT PlaceSearchCard to preserve query & results permanently) */}
-        <div
-          className={`flex-1 flex-col min-h-0 overflow-y-auto p-3.5 ${
-            activeTab === 'search' && !(sheetState === 'peek' && props.selectedSearchPlace)
-              ? 'flex'
-              : 'hidden'
-          }`}
-        >
-          <PlaceSearchCard
-            onAddPlace={handleAddPlace}
-            onSelectPlace={handleSelectSearchPlaceOnMobile}
-            addedPlaceIds={currentDayPlaceIds}
-            containerMode="mobile-sheet"
+      {/* Itinerary Panel */}
+      <div className={`flex-1 min-h-0 overflow-hidden ${sheetState === 'peek' && dragHeight === null ? 'hidden' : 'block'}`}>
+        {props.readOnly ? (
+          <SharedItineraryView
+            days={props.days}
+            activeDayIndex={props.activeDayIndex}
+            setActiveDayIndex={props.setActiveDayIndex}
+            routes={props.routes}
+            onSelectBlock={props.onSelectBlock}
           />
-        </div>
-
-        {/* Selected Search Place Preview Card (Shown in peek mode when a search place is active) */}
-        {activeTab === 'search' && sheetState === 'peek' && props.selectedSearchPlace && (
-          <SearchPlacePreviewCard
-            place={props.selectedSearchPlace}
-            onAddPlace={handleAddPlace}
-            isAlreadyAdded={currentDayPlaceIds.includes(props.selectedSearchPlace.id)}
-            onReturnToSearch={handleReturnToSearchResults}
-            onClose={props.onClearSelectedSearchPlace}
+        ) : (
+          <ItinerarySidebar
+            planTitle={props.planTitle}
+            setPlanTitle={props.setPlanTitle}
+            days={props.days}
+            setDays={props.setDays}
+            activeDayIndex={props.activeDayIndex}
+            setActiveDayIndex={props.setActiveDayIndex}
+            onSelectBlock={props.onSelectBlock}
+            routes={props.routes}
+            drivingRoutes={props.drivingRoutes}
+            planId={props.planId}
+            authorName={props.authorName}
+            userName={props.userName}
+            onChangeUserName={props.onChangeUserName}
+            onPlanSaved={props.onPlanSaved}
+            onLoadPlan={props.onLoadPlan}
+            onNewPlan={props.onNewPlan}
+            onDeleteCurrentActivePlan={props.onDeleteCurrentActivePlan}
+            onRequestMapView={props.onRequestMapView}
+            isMobileMode={true}
+            loadedPlanIdentity={props.loadedPlanIdentity}
           />
         )}
-
-        {/* Itinerary Tab Panel */}
-        <div
-          className={`flex-1 overflow-hidden ${
-            activeTab === 'itinerary' ? 'block' : 'hidden'
-          }`}
-        >
-          <ItinerarySidebar
-            {...props}
-            onSelectSearchPlace={handleSelectSearchPlaceOnMobile}
-            isMobileMode={true}
-          />
-        </div>
       </div>
     </div>
   );
