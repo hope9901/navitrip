@@ -1,4 +1,4 @@
-import { Place } from '@/types/itinerary';
+import { Place, TravelMode } from '@/types/itinerary';
 
 function stripHtml(text?: string): string {
   if (!text) return '';
@@ -64,4 +64,50 @@ export function normalizePlaceLinks(place: Place): Place {
     link: isNaverMapUrl(place.link) ? place.link : undefined,
     naverPlaceUrl: isNaverMapUrl(place.naverPlaceUrl) ? place.naverPlaceUrl : undefined,
   };
+}
+
+// 네이버 지도 앱 길찾기 URL Scheme (NCP 문서: nmap://route/{car|walk}?slat&slng&sname&dlat&dlng&dname&appname)
+export function getNaverMapRouteAppUrl(from: Place, to: Place, mode: TravelMode): string {
+  const params = new URLSearchParams({
+    slat: String(from.lat),
+    slng: String(from.lng),
+    sname: stripHtml(from.title),
+    dlat: String(to.lat),
+    dlng: String(to.lng),
+    dname: stripHtml(to.title),
+    appname: typeof window !== 'undefined' ? window.location.hostname : 'navitrip',
+  });
+  return `nmap://route/${mode === 'walking' ? 'walk' : 'car'}?${params.toString()}`;
+}
+
+const APP_OPEN_FALLBACK_DELAY_MS = 1500;
+
+/**
+ * 길찾기 열기: 모바일에서는 네이버 지도 앱을 먼저 시도하고, 앱이 열리지 않으면(설치 안 됨)
+ * 도착지의 네이버 지도 웹 검색으로 이동한다. 데스크톱은 바로 웹 검색을 새 탭으로 연다.
+ * (네이버 지도 웹 길찾기 URL 형식은 공식 문서화되어 있지 않아 사용하지 않음)
+ */
+export function openNaverMapRoute(from: Place, to: Place, mode: TravelMode) {
+  const webFallbackUrl = getNaverMapSearchUrl(to);
+  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+
+  if (!isTouchDevice) {
+    if (webFallbackUrl) window.open(webFallbackUrl, '_blank', 'noopener,noreferrer');
+    return;
+  }
+
+  const fallbackTimer = setTimeout(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    if (!document.hidden && webFallbackUrl) window.location.href = webFallbackUrl;
+  }, APP_OPEN_FALLBACK_DELAY_MS);
+
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      clearTimeout(fallbackTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+  }
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.location.href = getNaverMapRouteAppUrl(from, to, mode);
 }

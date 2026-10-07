@@ -10,6 +10,7 @@ import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
 import { createRouteSignature } from '@/lib/routeSignature';
 import { applyTravelModes } from '@/lib/travelMode';
+import { useHistoryOverlay } from '@/lib/useHistoryOverlay';
 import MobileTopBar from '@/components/common/MobileTopBar';
 import { LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 
@@ -56,7 +57,8 @@ export default function HomePage() {
 
   const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const searchOverlay = useHistoryOverlay<'search'>('navitripSearch');
+  const isMobileSearchOpen = searchOverlay.overlay === 'search';
   const [mobileSearchSession, setMobileSearchSession] = useState(0);
   const [mobileSheetState, setMobileSheetState] = useState<MobileSheetState>('half');
 
@@ -316,30 +318,15 @@ export default function HomePage() {
     setMobileSheetState('peek');
   };
 
-  // 모바일 전체 화면 검색: 브라우저/안드로이드 뒤로가기로 닫히도록 history 항목을 함께 쌓는다
-  useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      const state = event.state as { navitripSearch?: boolean } | null;
-      setIsMobileSearchOpen(Boolean(state?.navitripSearch));
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
+  // 모바일 전체 화면 검색 (브라우저/안드로이드 뒤로가기로 닫힘)
   const openMobileSearch = (resume = false) => {
     setSelectedSearchPlace(null);
     if (!resume) setMobileSearchSession((n) => n + 1);
-    setIsMobileSearchOpen(true);
-    window.history.pushState({ ...(window.history.state ?? {}), navitripSearch: true }, '');
+    searchOverlay.open('search');
   };
 
   const closeMobileSearch = () => {
-    const state = window.history.state as { navitripSearch?: boolean } | null;
-    if (state?.navitripSearch) {
-      window.history.back();
-    } else {
-      setIsMobileSearchOpen(false);
-    }
+    void searchOverlay.close();
   };
 
   const handleSelectMobileSearchPlace = (place: Place) => {

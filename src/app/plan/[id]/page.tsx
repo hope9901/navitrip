@@ -10,9 +10,10 @@ import MobileBottomSheet, { MobileSheetState } from '@/components/itinerary/Mobi
 import MobileSearchScreen from '@/components/search/MobileSearchScreen';
 import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
-import { loadPlanFromDB, LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
+import { loadPlanFromDB, LoadedPlanIdentity, PlanSaveResult, normalizeUserName } from '@/lib/supabase';
 import { createRouteSignature } from '@/lib/routeSignature';
 import { applyTravelModes } from '@/lib/travelMode';
+import { useHistoryOverlay } from '@/lib/useHistoryOverlay';
 import MobileTopBar from '@/components/common/MobileTopBar';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -69,7 +70,11 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
 
   const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const searchOverlay = useHistoryOverlay<'search'>('navitripSearch');
+
+  // 공유받은 일정(작성자 ≠ 나)은 모바일에서 읽기 전용 보기 모드로 먼저 보여준다
+  const [isEditingSharedPlan, setIsEditingSharedPlan] = useState(false);
+  const isMobileSearchOpen = searchOverlay.overlay === 'search';
   const [mobileSearchSession, setMobileSearchSession] = useState(0);
   const [mobileSheetState, setMobileSheetState] = useState<MobileSheetState>('half');
 
@@ -94,7 +99,8 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           setUserName(stored.trim());
         }, 0);
         return () => clearTimeout(timer);
-      } else {
+      } else if (!window.matchMedia('(max-width: 767px)').matches) {
+        // 모바일에서는 공유받은 일정을 먼저 보기 모드로 보여주고, 편집을 시작할 때 이름을 묻는다
         const timer = setTimeout(() => {
           setIsUserModalOpen(true);
         }, 0);
@@ -364,30 +370,25 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     setMobileSheetState('peek');
   };
 
-  // 모바일 전체 화면 검색: 브라우저/안드로이드 뒤로가기로 닫히도록 history 항목을 함께 쌓는다
-  useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      const state = event.state as { navitripSearch?: boolean } | null;
-      setIsMobileSearchOpen(Boolean(state?.navitripSearch));
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  const isViewingSharedPlan =
+    !isEditingSharedPlan &&
+    Boolean(loadedPlanIdentity) &&
+    normalizeUserName(loadedPlanIdentity?.authorName ?? '') !== normalizeUserName(userName);
 
+  const handleStartEditingSharedPlan = () => {
+    setIsEditingSharedPlan(true);
+    if (!userName) setIsUserModalOpen(true);
+  };
+
+  // 모바일 전체 화면 검색 (브라우저/안드로이드 뒤로가기로 닫힘)
   const openMobileSearch = (resume = false) => {
     setSelectedSearchPlace(null);
     if (!resume) setMobileSearchSession((n) => n + 1);
-    setIsMobileSearchOpen(true);
-    window.history.pushState({ ...(window.history.state ?? {}), navitripSearch: true }, '');
+    searchOverlay.open('search');
   };
 
   const closeMobileSearch = () => {
-    const state = window.history.state as { navitripSearch?: boolean } | null;
-    if (state?.navitripSearch) {
-      window.history.back();
-    } else {
-      setIsMobileSearchOpen(false);
-    }
+    void searchOverlay.close();
   };
 
   const handleSelectMobileSearchPlace = (place: Place) => {
@@ -571,6 +572,8 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
         onForceRefreshRoute={handleForceRefreshRoute}
         isRefreshingRoute={isRefreshingRoute}
         refreshCooldownSeconds={refreshCooldownSeconds}
+        readOnly={isViewingSharedPlan}
+        onStartEditing={handleStartEditingSharedPlan}
       />
 
       {/* Main Map View Area */}
@@ -626,6 +629,8 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           mobileSheetState={mobileSheetState}
           setMobileSheetState={setMobileSheetState}
           loadedPlanIdentity={loadedPlanIdentity}
+          readOnly={isViewingSharedPlan}
+          onStartEditing={handleStartEditingSharedPlan}
         />
       </div>
 
