@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore, useC
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
+import SharedPlanSidebar from '@/components/itinerary/SharedPlanSidebar';
 import NaverMap, { NaverMapRefHandle } from '@/components/map/NaverMap';
 import Toast from '@/components/common/Toast';
 import MobileBottomSheet, { MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
@@ -99,13 +100,8 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           setUserName(stored.trim());
         }, 0);
         return () => clearTimeout(timer);
-      } else if (!window.matchMedia('(max-width: 767px)').matches) {
-        // 모바일에서는 공유받은 일정을 먼저 보기 모드로 보여주고, 편집을 시작할 때 이름을 묻는다
-        const timer = setTimeout(() => {
-          setIsUserModalOpen(true);
-        }, 0);
-        return () => clearTimeout(timer);
       }
+      // 이름이 없으면 공유받은 일정을 먼저 보기 모드로 보여주고, 편집을 시작할 때 이름을 묻는다
     }
   }, []);
 
@@ -525,28 +521,41 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     <div className="flex flex-col md:flex-row h-[100dvh] min-h-[100svh] w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans antialiased">
       {/* Desktop Left Sidebar Panel */}
       <aside className="hidden md:flex w-[420px] lg:w-[460px] flex-col border-r border-slate-800/80 bg-slate-950 z-20 shrink-0 shadow-2xl">
-        <ItinerarySidebar
-          planTitle={planTitle}
-          setPlanTitle={setPlanTitle}
-          days={days}
-          setDays={setDays}
-          activeDayIndex={activeDayIndex}
-          setActiveDayIndex={handleActiveDayChange}
-          onSelectBlock={handleSelectBlock}
-          routes={routes}
-          drivingRoutes={drivingRoutes}
-          planId={currentPlanId}
-          authorName={authorName}
-          userName={userName}
-          onChangeUserName={() => setIsChangeNameMode(true)}
-          onPlanSaved={handlePlanSaved}
-          onLoadPlan={handleLoadPlan}
-          onNewPlan={handleNewPlan}
-          onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
-          onRequestMapView={() => mapRef.current?.getMapView() || null}
-          onSelectSearchPlace={handleSelectSearchPlace}
-          loadedPlanIdentity={loadedPlanIdentity}
-        />
+        {isViewingSharedPlan ? (
+          <SharedPlanSidebar
+            planTitle={planTitle}
+            authorName={authorName}
+            days={days}
+            activeDayIndex={activeDayIndex}
+            setActiveDayIndex={handleActiveDayChange}
+            routes={routes}
+            onSelectBlock={handleSelectBlock}
+            onStartEditing={handleStartEditingSharedPlan}
+          />
+        ) : (
+          <ItinerarySidebar
+            planTitle={planTitle}
+            setPlanTitle={setPlanTitle}
+            days={days}
+            setDays={setDays}
+            activeDayIndex={activeDayIndex}
+            setActiveDayIndex={handleActiveDayChange}
+            onSelectBlock={handleSelectBlock}
+            routes={routes}
+            drivingRoutes={drivingRoutes}
+            planId={currentPlanId}
+            authorName={authorName}
+            userName={userName}
+            onChangeUserName={() => setIsChangeNameMode(true)}
+            onPlanSaved={handlePlanSaved}
+            onLoadPlan={handleLoadPlan}
+            onNewPlan={handleNewPlan}
+            onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
+            onRequestMapView={() => mapRef.current?.getMapView() || null}
+            onSelectSearchPlace={handleSelectSearchPlace}
+            loadedPlanIdentity={loadedPlanIdentity}
+          />
+        )}
       </aside>
 
       {/* Mobile Top Bar: 제목 · 공유 · ⋯ 일정 관리 메뉴 */}
