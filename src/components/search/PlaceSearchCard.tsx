@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useId } from 'react';
+import React, { useState, useEffect, useId, useRef } from 'react';
 import { Place } from '@/types/itinerary';
 import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
 import { Search, MapPin, ExternalLink, Plus, Loader2, Phone, AlertCircle, X, Navigation, Check } from 'lucide-react';
@@ -10,6 +10,7 @@ interface PlaceSearchCardProps {
   onSelectPlace?: (place: Place) => void;
   addedPlaceIds?: string[];
   containerMode?: 'sidebar' | 'mobile-sheet';
+  focusSignal?: number; // 값이 바뀔 때마다 검색창에 포커스
 }
 
 export default function PlaceSearchCard({
@@ -17,8 +18,10 @@ export default function PlaceSearchCard({
   onSelectPlace,
   addedPlaceIds = [],
   containerMode = 'sidebar',
+  focusSignal,
 }: PlaceSearchCardProps) {
   const searchInputId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Place[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,6 +39,10 @@ export default function PlaceSearchCard({
       }
     };
   }, [containerMode]);
+
+  useEffect(() => {
+    if (focusSignal) inputRef.current?.focus();
+  }, [focusSignal]);
 
   const resetSearch = () => {
     setQuery('');
@@ -156,9 +163,11 @@ export default function PlaceSearchCard({
       <form onSubmit={handleSearch} className="relative w-full sticky top-0 z-10 bg-slate-950 pb-1">
         {/* Minimum 16px font size on mobile (text-base) to prevent iOS Safari auto-zoom */}
         <input
+          ref={inputRef}
           id={searchInputId}
           name="placeSearchQuery"
           type="text"
+          enterKeyHint="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="장소명 또는 도로명/지번 주소 입력 (예: 순천만국가정원, 성심당 본점)"

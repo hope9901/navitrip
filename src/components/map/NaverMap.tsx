@@ -514,14 +514,16 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         if (route.path && route.path.length > 0) {
           const linePath = route.path.map(([lat, lng]) => new naver.maps.LatLng(lat, lng));
           const isFallback = route.isFallback || route.source === 'fallback';
+          const isWalking = route.travelMode === 'walking';
 
           const polyline = new naver.maps.Polyline({
             map: mapInstance.current!,
             path: linePath,
-            strokeColor: isFallback ? '#94a3b8' : '#10b981',
-            strokeWeight: isFallback ? 4 : 5,
-            strokeOpacity: isFallback ? 0.6 : 0.85,
-            strokeStyle: isFallback ? 'dash' : 'solid',
+            strokeColor: isWalking ? '#0ea5e9' : isFallback ? '#94a3b8' : '#10b981',
+            strokeWeight: isFallback && !isWalking ? 4 : 5,
+            strokeOpacity: isFallback && !isWalking ? 0.6 : 0.85,
+            strokeStyle: isWalking ? 'shortdot' : isFallback ? 'dash' : 'solid',
+            strokeLineCap: isWalking ? 'round' : 'butt',
           });
           polylinesRef.current.push(polyline);
         }

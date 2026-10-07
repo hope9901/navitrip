@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import NaverMap, { NaverMapRefHandle } from '@/components/map/NaverMap';
 import Toast from '@/components/common/Toast';
-import MobileBottomSheet, { MobilePanelTab, MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
+import MobileBottomSheet, { MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
+import MobileSearchScreen from '@/components/search/MobileSearchScreen';
 import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
 import { loadPlanFromDB, LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 import { createRouteSignature } from '@/lib/routeSignature';
+import { applyTravelModes } from '@/lib/travelMode';
 import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -67,7 +69,8 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
 
   const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>('search');
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [mobileSearchSession, setMobileSearchSession] = useState(0);
   const [mobileSheetState, setMobileSheetState] = useState<MobileSheetState>('half');
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -147,10 +150,25 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   const activeDay = days[activeDayIndex] || { day: 1, blocks: [] };
   const currentBlocks = useMemo(() => activeDay.blocks || [], [activeDay.blocks]);
 
-  const routes = useMemo(() => {
+  // 자동차 경로(원본)와, 블록별 이동 수단(도보) 선택을 반영한 표시용 경로
+  const drivingRoutes = useMemo(() => {
     if (currentBlocks.length < 2) return [];
     return fetchedRoutes;
   }, [currentBlocks.length, fetchedRoutes]);
+  const routes = useMemo(() => applyTravelModes(currentBlocks, drivingRoutes), [currentBlocks, drivingRoutes]);
+
+  // 이동 수단 변경은 좌표 순서와 무관하므로 경로 재요청 기준을 좌표 문자열로 메모이즈
+  const waypointsKey = currentBlocks.map((b) => `${b.place.lat},${b.place.lng}`).join('|');
+  const waypoints = useMemo(
+    () =>
+      waypointsKey
+        ? waypointsKey.split('|').map((pair) => {
+            const [lat, lng] = pair.split(',').map(Number);
+            return { lat, lng };
+          })
+        : [],
+    [waypointsKey]
+  );
 
   // Fetch or Restore Directions with Caching & 800ms Debounce
   useEffect(() => {
@@ -161,7 +179,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       abortControllerRef.current.abort();
     }
 
-    if (currentBlocks.length < 2) {
+    if (waypoints.length < 2) {
       const timer = setTimeout(() => {
         setFetchedRoutes([]);
         setRouteSource(null);
@@ -170,10 +188,6 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       return () => clearTimeout(timer);
     }
 
-    const waypoints = currentBlocks.map((b) => ({
-      lat: b.place.lat,
-      lng: b.place.lng,
-    }));
     const currentSig = createRouteSignature({ waypoints, option: 'trafast', mode: 'driving', version: 1 });
 
     // Step 1: Check if activeDay has a valid savedRoute summary matching signature
@@ -252,7 +266,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       controller.abort();
     };
-  }, [currentBlocks, activeDay.savedRoute]);
+  }, [waypoints, activeDay.savedRoute]);
 
   // Manual Force Refresh Route Handler
   const handleForceRefreshRoute = useCallback(async () => {
@@ -319,6 +333,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   }, [currentBlocks, isRefreshingRoute, refreshCooldownSeconds, activeDayIndex]);
 
   const handleSelectBlock = (block: ItineraryBlock) => {
+    setSelectedSearchPlace(null);
     setSelectedPlace(block.place);
     setSelectedBlockId(block.id);
     setFocusRequest({
@@ -347,6 +362,42 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       source: 'search',
     });
     setMobileSheetState('peek');
+  };
+
+  // 모바일 전체 화면 검색: 브라우저/안드로이드 뒤로가기로 닫히도록 history 항목을 함께 쌓는다
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const state = event.state as { navitripSearch?: boolean } | null;
+      setIsMobileSearchOpen(Boolean(state?.navitripSearch));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const openMobileSearch = (resume = false) => {
+    setSelectedSearchPlace(null);
+    if (!resume) setMobileSearchSession((n) => n + 1);
+    setIsMobileSearchOpen(true);
+    window.history.pushState({ ...(window.history.state ?? {}), navitripSearch: true }, '');
+  };
+
+  const closeMobileSearch = () => {
+    const state = window.history.state as { navitripSearch?: boolean } | null;
+    if (state?.navitripSearch) {
+      window.history.back();
+    } else {
+      setIsMobileSearchOpen(false);
+    }
+  };
+
+  const handleSelectMobileSearchPlace = (place: Place) => {
+    handleSelectSearchPlace(place);
+    closeMobileSearch();
+  };
+
+  const handleShowItineraryFromSearch = () => {
+    setMobileSheetState('half');
+    closeMobileSearch();
   };
 
   const handleAddPlaceFromSearch = (place: Place) => {
@@ -482,6 +533,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           setActiveDayIndex={handleActiveDayChange}
           onSelectBlock={handleSelectBlock}
           routes={routes}
+          drivingRoutes={drivingRoutes}
           planId={currentPlanId}
           authorName={authorName}
           userName={userName}
@@ -545,6 +597,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           setActiveDayIndex={handleActiveDayChange}
           onSelectBlock={handleSelectBlock}
           routes={routes}
+          drivingRoutes={drivingRoutes}
           planId={currentPlanId}
           authorName={authorName}
           userName={userName}
@@ -554,17 +607,29 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           onNewPlan={handleNewPlan}
           onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
           onRequestMapView={() => mapRef.current?.getMapView() || null}
-          onSelectSearchPlace={handleSelectSearchPlace}
+          onOpenSearch={() => openMobileSearch()}
+          onReturnToSearch={() => openMobileSearch(true)}
           selectedSearchPlace={selectedSearchPlace}
           onClearSelectedSearchPlace={() => setSelectedSearchPlace(null)}
           onAddPlaceFromSearch={handleAddPlaceFromSearch}
-          mobilePanelTab={mobilePanelTab}
-          setMobilePanelTab={setMobilePanelTab}
           mobileSheetState={mobileSheetState}
           setMobileSheetState={setMobileSheetState}
           loadedPlanIdentity={loadedPlanIdentity}
         />
       </div>
+
+      {/* Mobile Full-screen Place Search */}
+      <MobileSearchScreen
+        isOpen={isMobileSearchOpen}
+        sessionId={mobileSearchSession}
+        days={days}
+        activeDayIndex={activeDayIndex}
+        onChangeDay={handleActiveDayChange}
+        onAddPlace={handleAddPlaceFromSearch}
+        onSelectPlace={handleSelectMobileSearchPlace}
+        onClose={closeMobileSearch}
+        onShowItinerary={handleShowItineraryFromSearch}
+      />
 
       {/* User Name Entrance / Edit Modal */}
       <UserNameModal

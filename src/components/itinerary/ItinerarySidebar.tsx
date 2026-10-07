@@ -16,8 +16,9 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView } from '@/types/itinerary';
+import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView, TravelMode } from '@/types/itinerary';
 import { createRouteSignature } from '@/lib/routeSignature';
+import { estimateWalkingSegment } from '@/lib/travelMode';
 import SortableBlockItem from './SortableBlockItem';
 import PlaceSearchCard from '../search/PlaceSearchCard';
 import {
@@ -61,6 +62,7 @@ interface ItinerarySidebarProps {
   setActiveDayIndex: (idx: number) => void;
   onSelectBlock: (block: ItineraryBlock) => void;
   routes: RouteSegment[];
+  drivingRoutes?: RouteSegment[]; // 이동 수단 선택 반영 전 자동차 경로 (저장 및 차량/도보 비교용)
   planId?: string;
   authorName?: string;
   userName?: string;
@@ -93,6 +95,7 @@ export default function ItinerarySidebar({
   setActiveDayIndex,
   onSelectBlock,
   routes,
+  drivingRoutes,
   planId,
   authorName,
   userName = '사용자',
@@ -193,6 +196,17 @@ export default function ItinerarySidebar({
       next[activeDayIndex] = {
         ...next[activeDayIndex],
         blocks: next[activeDayIndex].blocks.filter((b) => b.id !== blockId),
+      };
+      return next;
+    });
+  };
+
+  const handleChangeTravelMode = (blockId: string, mode: TravelMode) => {
+    setDays((prev) => {
+      const next = [...prev];
+      next[activeDayIndex] = {
+        ...next[activeDayIndex],
+        blocks: next[activeDayIndex].blocks.map((b) => (b.id === blockId ? { ...b, travelModeToNext: mode } : b)),
       };
       return next;
     });
@@ -310,12 +324,14 @@ export default function ItinerarySidebar({
   };
 
   const prepareDaysWithSavedRoutes = (): DayItinerary[] => {
+    // 도보 선택은 블록에 저장되므로, 경로 캐시에는 항상 원본 자동차 경로를 저장한다.
+    const routesToSave = drivingRoutes ?? routes;
     return days.map((d, idx) => {
-      if (idx === activeDayIndex && routes && routes.length > 0) {
+      if (idx === activeDayIndex && routesToSave && routesToSave.length > 0) {
         const waypoints = (d.blocks || []).map((b) => ({ lat: b.place.lat, lng: b.place.lng }));
         if (waypoints.length >= 2) {
-          const totalDist = routes.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
-          const totalDur = routes.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
+          const totalDist = routesToSave.reduce((acc, r) => acc + (r.distanceMeter || 0), 0);
+          const totalDur = routesToSave.reduce((acc, r) => acc + (r.durationSeconds || 0), 0);
           const routeSig = createRouteSignature({ waypoints, option: 'trafast', mode: 'driving', version: 1 });
 
           return {
@@ -327,7 +343,7 @@ export default function ItinerarySidebar({
               calculatedAt: new Date().toISOString(),
               expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
               source: 'saved' as const,
-              segments: routes,
+              segments: routesToSave,
             },
           };
         }
@@ -657,7 +673,11 @@ export default function ItinerarySidebar({
           <div className="flex flex-col items-center justify-center py-12 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl p-6 gap-2">
             <MapPin className="w-8 h-8 text-slate-600" />
             <p className="text-xs font-medium">아직 등록된 장소가 없습니다.</p>
-            <p className="text-[11px] text-slate-600">위 검색창에서 가고 싶은 곳을 검색한 후 [일정에 추가] 버튼을 눌러보세요.</p>
+            <p className="text-[11px] text-slate-600">
+              {isMobileMode
+                ? '[장소 추가] 버튼을 눌러 가고 싶은 곳을 검색해 보세요.'
+                : '위 검색창에서 가고 싶은 곳을 검색한 후 [일정에 추가] 버튼을 눌러보세요.'}
+            </p>
           </div>
         ) : (
           <DndContext id={dndContextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -668,7 +688,9 @@ export default function ItinerarySidebar({
                     key={block.id}
                     block={block}
                     index={idx}
-                    routeToNext={routes[idx]}
+                    drivingToNext={(drivingRoutes ?? routes)[idx]}
+                    walkingToNext={blocks[idx + 1] ? estimateWalkingSegment(block, blocks[idx + 1]) : undefined}
+                    onChangeTravelMode={handleChangeTravelMode}
                     onRemove={handleRemoveBlock}
                     onSelect={onSelectBlock}
                   />

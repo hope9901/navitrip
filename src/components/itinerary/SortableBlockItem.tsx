@@ -3,14 +3,16 @@
 import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ItineraryBlock, RouteSegment } from '@/types/itinerary';
+import { ItineraryBlock, RouteSegment, TravelMode } from '@/types/itinerary';
 import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
-import { GripVertical, X, MapPin, Car, ExternalLink } from 'lucide-react';
+import { GripVertical, X, MapPin, Car, Footprints, ExternalLink } from 'lucide-react';
 
 interface SortableBlockItemProps {
   block: ItineraryBlock;
   index: number;
-  routeToNext?: RouteSegment;
+  drivingToNext?: RouteSegment;
+  walkingToNext?: RouteSegment;
+  onChangeTravelMode?: (blockId: string, mode: TravelMode) => void;
   onRemove: (id: string) => void;
   onSelect: (block: ItineraryBlock) => void;
 }
@@ -18,7 +20,9 @@ interface SortableBlockItemProps {
 export default function SortableBlockItem({
   block,
   index,
-  routeToNext,
+  drivingToNext,
+  walkingToNext,
+  onChangeTravelMode,
   onRemove,
   onSelect,
 }: SortableBlockItemProps) {
@@ -39,6 +43,16 @@ export default function SortableBlockItem({
   };
 
   const naverSearchUrl = getNaverMapSearchUrl(block.place);
+  const travelMode: TravelMode = block.travelModeToNext ?? 'driving';
+
+  const modeButtonClass = (mode: TravelMode) =>
+    `inline-flex items-center gap-1.5 px-3 min-h-[36px] md:min-h-[28px] rounded-full text-[11px] font-semibold transition-all ${
+      travelMode === mode
+        ? mode === 'walking'
+          ? 'bg-sky-400 text-sky-950'
+          : 'bg-emerald-400 text-emerald-950'
+        : 'text-slate-400 hover:text-slate-200'
+    }`;
 
   return (
     <div ref={setNodeRef} style={style} className="relative flex flex-col w-full group">
@@ -106,15 +120,40 @@ export default function SortableBlockItem({
         </div>
       </div>
 
-      {/* Route Badge to Next Place */}
-      {routeToNext && (
+      {/* Travel Mode Selector to Next Place (차량 / 도보) */}
+      {walkingToNext && (
         <div className="flex items-center justify-center my-1.5 relative">
           <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 border-t border-dashed border-slate-700" />
-          <div className="relative z-10 px-2.5 py-1 bg-slate-950 border border-emerald-500/30 rounded-full text-[10px] text-emerald-400 font-medium flex items-center gap-1.5 shadow-sm">
-            <Car className="w-3 h-3 text-emerald-400" />
-            <span>{routeToNext.formattedDuration}</span>
-            <span className="text-slate-600">•</span>
-            <span className="text-slate-400">{routeToNext.formattedDistance}</span>
+          <div
+            role="radiogroup"
+            aria-label={`${block.place.title}에서 다음 장소까지 이동 수단`}
+            className="relative z-10 inline-flex items-center gap-0.5 p-0.5 bg-slate-950 border border-slate-700/80 rounded-full shadow-sm"
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={travelMode === 'driving'}
+              onClick={() => onChangeTravelMode?.(block.id, 'driving')}
+              className={modeButtonClass('driving')}
+            >
+              <Car className="w-3.5 h-3.5" />
+              <span>
+                {drivingToNext ? `${drivingToNext.formattedDuration} · ${drivingToNext.formattedDistance}` : '계산 중'}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={travelMode === 'walking'}
+              onClick={() => onChangeTravelMode?.(block.id, 'walking')}
+              className={modeButtonClass('walking')}
+              title="도보 시간은 직선거리 기준 추정치입니다"
+            >
+              <Footprints className="w-3.5 h-3.5" />
+              <span>
+                도보 약 {walkingToNext.formattedDuration}
+              </span>
+            </button>
           </div>
         </div>
       )}
