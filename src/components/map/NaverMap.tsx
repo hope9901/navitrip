@@ -6,6 +6,14 @@ import { getNaverMapSearchUrl } from '@/lib/naverMapUrl';
 import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
 import { AlertTriangle, Maximize2, Info } from 'lucide-react';
 
+// 지도 위를 덮고 있는 UI(모바일 상단 바, 하단 시트)의 높이(px)
+export interface MapViewportInsets {
+  top: number;
+  bottom: number;
+}
+
+const MIN_VISIBLE_MAP_HEIGHT = 160;
+
 export interface NaverMapRefHandle {
   getMapView: () => SavedMapView | null;
   fitAllBounds: () => void;
@@ -29,6 +37,7 @@ interface NaverMapProps {
   refreshCooldownSeconds?: number;
   isMapReady?: boolean;
   onMapReadyChange?: (ready: boolean) => void;
+  getViewportInsets?: () => MapViewportInsets;
 }
 
 const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
@@ -47,6 +56,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
     isRefreshingRoute = false,
     refreshCooldownSeconds = 0,
     onMapReadyChange,
+    getViewportInsets,
   },
   ref
 ) {
@@ -59,6 +69,39 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
   const pendingFocusRequestRef = useRef<MapFocusRequest | null>(null);
   const blocksRef = useRef<ItineraryBlock[]>(blocks);
   blocksRef.current = blocks;
+  const getViewportInsetsRef = useRef(getViewportInsets);
+  getViewportInsetsRef.current = getViewportInsets;
+
+  // 지도에서 실제로 보이는 영역(상단 바·하단 시트 제외) 기준의 여백.
+  // 보이는 영역이 너무 작으면(시트를 끝까지 올린 경우 등) 최소 높이를 남기도록 줄인다.
+  const getVisibleInsets = useCallback((): MapViewportInsets => {
+    const insets = getViewportInsetsRef.current?.() ?? { top: 0, bottom: 0 };
+    const map = mapInstance.current;
+    if (!map) return insets;
+    const height = map.getSize().height;
+    const maxBottom = Math.max(0, height - insets.top - MIN_VISIBLE_MAP_HEIGHT);
+    return { top: insets.top, bottom: Math.min(insets.bottom, maxBottom) };
+  }, []);
+
+  // 좌표가 보이는 영역의 한가운데에 오도록 지도 중심을 맞춘다
+  const centerInVisibleArea = useCallback(
+    (pos: naver.maps.LatLng) => {
+      const map = mapInstance.current;
+      if (!map) return;
+      map.setCenter(pos);
+      const { top, bottom } = getVisibleInsets();
+      const shiftY = (bottom - top) / 2;
+      if (shiftY === 0) return;
+      try {
+        const projection = map.getProjection();
+        const offset = projection.fromCoordToOffset(pos);
+        map.setCenter(projection.fromOffsetToCoord(new naver.maps.Point(offset.x, offset.y + shiftY)));
+      } catch {
+        // 보정에 실패하면 기본 중앙 정렬 유지
+      }
+    },
+    [getVisibleInsets]
+  );
 
   const [isScriptLoaded, setIsScriptLoaded] = useState(() => {
     if (typeof window !== 'undefined' && window.naver && window.naver.maps) {
@@ -92,8 +135,8 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
     if (validBlocks.length === 1) {
       const pos = new naver.maps.LatLng(validBlocks[0].place.lat, validBlocks[0].place.lng);
-      mapInstance.current.setCenter(pos);
-      mapInstance.current.setZoom(15);
+      mapInstance.current.setZoom(15, false);
+      centerInVisibleArea(pos);
       return;
     }
 
@@ -104,13 +147,14 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
       bounds.extend(new naver.maps.LatLng(b.place.lat, b.place.lng));
     });
 
+    const { top, bottom } = getVisibleInsets();
     mapInstance.current.fitBounds(bounds, {
-      top: 60,
+      top: 60 + top,
       right: 60,
-      bottom: 60,
+      bottom: 60 + bottom,
       left: 60,
     });
-  }, []);
+  }, [centerInVisibleArea, getVisibleInsets]);
 
   // Expose getMapView and fitAllBounds to parent via Ref
   useImperativeHandle(
@@ -261,8 +305,8 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
       const targetPos = new naver.maps.LatLng(lat, lng);
 
-      mapInstance.current.setCenter(targetPos);
-      mapInstance.current.setZoom(15);
+      mapInstance.current.setZoom(15, false);
+      centerInVisibleArea(targetPos);
 
       const currentBlocks = blocksRef.current;
       const matchingBlock = currentBlocks.find(
@@ -314,7 +358,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
                     align-items: center;
                     gap: 4px;
                     font-size: 11px;
-                    color: #38bdf8;
+                    color: #34d399;
                     font-weight: 600;
                     text-decoration: none;
                   ">
@@ -346,12 +390,12 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
               justify-content: center;
               width: 36px;
               height: 36px;
-              background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+              background: #0f172a;
               color: white;
               font-weight: 700;
               font-size: 16px;
               border-radius: 50%;
-              box-shadow: 0 4px 14px rgba(56, 189, 248, 0.6), 0 0 0 3px rgba(255, 255, 255, 0.95);
+              box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45), 0 0 0 3px #34d399;
               cursor: pointer;
             ">
               📍
@@ -373,7 +417,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         }
       }
     },
-    []
+    [centerInVisibleArea]
   );
 
   // Initialize Map Instance
@@ -514,14 +558,16 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         if (route.path && route.path.length > 0) {
           const linePath = route.path.map(([lat, lng]) => new naver.maps.LatLng(lat, lng));
           const isFallback = route.isFallback || route.source === 'fallback';
+          const isWalking = route.travelMode === 'walking';
 
           const polyline = new naver.maps.Polyline({
             map: mapInstance.current!,
             path: linePath,
-            strokeColor: isFallback ? '#94a3b8' : '#10b981',
-            strokeWeight: isFallback ? 4 : 5,
-            strokeOpacity: isFallback ? 0.6 : 0.85,
-            strokeStyle: isFallback ? 'dash' : 'solid',
+            strokeColor: isWalking ? '#6ee7b7' : isFallback ? '#94a3b8' : '#10b981',
+            strokeWeight: isFallback && !isWalking ? 4 : 5,
+            strokeOpacity: isFallback && !isWalking ? 0.6 : 0.85,
+            strokeStyle: isWalking ? 'shortdot' : isFallback ? 'dash' : 'solid',
+            strokeLineCap: isWalking ? 'round' : 'butt',
           });
           polylinesRef.current.push(polyline);
         }
@@ -562,7 +608,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
         <button
           type="button"
           onClick={fitAllBounds}
-          className="absolute top-4 left-4 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold shadow-xl z-20 flex items-center gap-1.5 transition-all active:scale-95 min-h-[38px]"
+          className="absolute top-[84px] md:top-4 left-4 bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-slate-200 px-3 py-2 rounded-xl text-xs font-semibold shadow-xl z-20 flex items-center gap-1.5 transition-all active:scale-95 min-h-[38px]"
           title="전체 일정 장소 지도에 한눈에 보기"
         >
           <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -579,7 +625,7 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
       {/* Map Auth Error Banner */}
       {mapError && (
-        <div className="absolute top-4 left-4 right-4 bg-slate-900/95 border border-rose-500/50 backdrop-blur-md text-rose-200 text-xs p-4 rounded-2xl z-20 flex items-start gap-3 shadow-2xl">
+        <div className="absolute top-[84px] md:top-4 left-4 right-4 bg-slate-900/95 border border-rose-500/50 backdrop-blur-md text-rose-200 text-xs p-4 rounded-2xl z-20 flex items-start gap-3 shadow-2xl">
           <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
           <div className="flex flex-col gap-1">
             <h4 className="font-bold text-rose-300 text-sm">네이버 지도 인증 실패</h4>
@@ -590,15 +636,15 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
 
       {/* Coordinate Warning Alert Banner */}
       {coordWarning && (
-        <div className="absolute top-16 left-4 right-4 bg-amber-500/10 border border-amber-500/40 backdrop-blur-md text-amber-200 text-xs p-3 rounded-xl z-20 flex items-center gap-2 shadow-xl animate-fadeIn">
-          <Info className="w-4 h-4 text-amber-400 shrink-0" />
+        <div className="absolute top-[180px] md:top-16 left-4 right-4 bg-slate-900/95 border border-slate-700 backdrop-blur-md text-slate-200 text-xs p-3 rounded-xl z-20 flex items-center gap-2 shadow-xl animate-fadeIn">
+          <Info className="w-4 h-4 text-slate-400 shrink-0" />
           <span>{coordWarning}</span>
         </div>
       )}
 
       {/* Driving Route Failure / Fallback Notice */}
       {(hasFallbackRoute || routeErrorMessage) && !mapError && (
-        <div className="absolute top-4 right-14 md:right-14 bg-slate-900/90 border border-slate-700 backdrop-blur-md text-slate-300 text-xs px-3 py-2 rounded-xl z-20 flex items-center gap-2 shadow-lg max-w-[260px] md:max-w-none truncate">
+        <div className="absolute top-[132px] left-4 right-4 md:top-4 md:left-auto md:right-14 bg-slate-900/90 border border-slate-700 backdrop-blur-md text-slate-300 text-xs px-3 py-2 rounded-xl z-20 flex items-center gap-2 shadow-lg md:max-w-none truncate">
           <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />
           <span className="truncate">{routeErrorMessage || '자동차 경로를 불러오지 못해 직선거리만 표시합니다.'}</span>
         </div>
@@ -613,7 +659,6 @@ const NaverMap = forwardRef<NaverMapRefHandle, NaverMapProps>(function NaverMap(
           onForceRefreshRoute={onForceRefreshRoute}
           isRefreshingRoute={isRefreshingRoute}
           refreshCooldownSeconds={refreshCooldownSeconds}
-          variant="desktop"
           blockCount={blocks.length}
         />
       </div>

@@ -4,14 +4,18 @@ import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore, useC
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
-import NaverMap, { NaverMapRefHandle } from '@/components/map/NaverMap';
+import SharedPlanSidebar from '@/components/itinerary/SharedPlanSidebar';
+import NaverMap, { NaverMapRefHandle, MapViewportInsets } from '@/components/map/NaverMap';
 import Toast from '@/components/common/Toast';
-import MobileBottomSheet, { MobilePanelTab, MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
+import MobileBottomSheet, { MobileSheetState, getSnapHeights } from '@/components/itinerary/MobileBottomSheet';
+import MobileSearchScreen from '@/components/search/MobileSearchScreen';
 import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
-import { loadPlanFromDB, LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
+import { loadPlanFromDB, LoadedPlanIdentity, PlanSaveResult, normalizeUserName } from '@/lib/supabase';
 import { createRouteSignature } from '@/lib/routeSignature';
-import RouteSummaryCard from '@/components/itinerary/RouteSummaryCard';
+import { applyTravelModes } from '@/lib/travelMode';
+import { useHistoryOverlay } from '@/lib/useHistoryOverlay';
+import MobileTopBar, { MOBILE_TOP_BAR_INSET } from '@/components/common/MobileTopBar';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 interface PlanPageProps {
@@ -67,8 +71,22 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
 
   const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>('search');
+  const searchOverlay = useHistoryOverlay<'search'>('navitripSearch');
+
+  // 공유받은 일정(작성자 ≠ 나)은 모바일에서 읽기 전용 보기 모드로 먼저 보여준다
+  const [isEditingSharedPlan, setIsEditingSharedPlan] = useState(false);
+  const isMobileSearchOpen = searchOverlay.overlay === 'search';
+  const [mobileSearchSession, setMobileSearchSession] = useState(0);
   const [mobileSheetState, setMobileSheetState] = useState<MobileSheetState>('half');
+
+  // 모바일에서 지도를 덮는 상단 바·하단 시트(또는 검색 미리보기 카드) 높이.
+  // 장소로 이동하거나 전체 보기를 할 때 이 영역을 피해서 보이는 곳에 맞춘다.
+  const getMapViewportInsets = useCallback((): MapViewportInsets => {
+    if (!window.matchMedia('(max-width: 767px)').matches) return { top: 0, bottom: 0 };
+    const previewCard = document.querySelector<HTMLElement>('[data-mobile-preview-card]');
+    const bottom = previewCard ? previewCard.offsetHeight : getSnapHeights()[mobileSheetState];
+    return { top: MOBILE_TOP_BAR_INSET, bottom };
+  }, [mobileSheetState]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -91,12 +109,8 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           setUserName(stored.trim());
         }, 0);
         return () => clearTimeout(timer);
-      } else {
-        const timer = setTimeout(() => {
-          setIsUserModalOpen(true);
-        }, 0);
-        return () => clearTimeout(timer);
       }
+      // 이름이 없으면 공유받은 일정을 먼저 보기 모드로 보여주고, 편집을 시작할 때 이름을 묻는다
     }
   }, []);
 
@@ -147,10 +161,25 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   const activeDay = days[activeDayIndex] || { day: 1, blocks: [] };
   const currentBlocks = useMemo(() => activeDay.blocks || [], [activeDay.blocks]);
 
-  const routes = useMemo(() => {
+  // 자동차 경로(원본)와, 블록별 이동 수단(도보) 선택을 반영한 표시용 경로
+  const drivingRoutes = useMemo(() => {
     if (currentBlocks.length < 2) return [];
     return fetchedRoutes;
   }, [currentBlocks.length, fetchedRoutes]);
+  const routes = useMemo(() => applyTravelModes(currentBlocks, drivingRoutes), [currentBlocks, drivingRoutes]);
+
+  // 이동 수단 변경은 좌표 순서와 무관하므로 경로 재요청 기준을 좌표 문자열로 메모이즈
+  const waypointsKey = currentBlocks.map((b) => `${b.place.lat},${b.place.lng}`).join('|');
+  const waypoints = useMemo(
+    () =>
+      waypointsKey
+        ? waypointsKey.split('|').map((pair) => {
+            const [lat, lng] = pair.split(',').map(Number);
+            return { lat, lng };
+          })
+        : [],
+    [waypointsKey]
+  );
 
   // Fetch or Restore Directions with Caching & 800ms Debounce
   useEffect(() => {
@@ -161,7 +190,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       abortControllerRef.current.abort();
     }
 
-    if (currentBlocks.length < 2) {
+    if (waypoints.length < 2) {
       const timer = setTimeout(() => {
         setFetchedRoutes([]);
         setRouteSource(null);
@@ -170,10 +199,6 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       return () => clearTimeout(timer);
     }
 
-    const waypoints = currentBlocks.map((b) => ({
-      lat: b.place.lat,
-      lng: b.place.lng,
-    }));
     const currentSig = createRouteSignature({ waypoints, option: 'trafast', mode: 'driving', version: 1 });
 
     // Step 1: Check if activeDay has a valid savedRoute summary matching signature
@@ -252,7 +277,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       controller.abort();
     };
-  }, [currentBlocks, activeDay.savedRoute]);
+  }, [waypoints, activeDay.savedRoute]);
 
   // Manual Force Refresh Route Handler
   const handleForceRefreshRoute = useCallback(async () => {
@@ -319,6 +344,9 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   }, [currentBlocks, isRefreshingRoute, refreshCooldownSeconds, activeDayIndex]);
 
   const handleSelectBlock = (block: ItineraryBlock) => {
+    // 모바일: 시트를 내려서 지도에서 바로 보이게 한다 (목록 탭 → 시트 내리기 2번을 1번으로)
+    setMobileSheetState('peek');
+    setSelectedSearchPlace(null);
     setSelectedPlace(block.place);
     setSelectedBlockId(block.id);
     setFocusRequest({
@@ -347,6 +375,37 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
       source: 'search',
     });
     setMobileSheetState('peek');
+  };
+
+  const isViewingSharedPlan =
+    !isEditingSharedPlan &&
+    Boolean(loadedPlanIdentity) &&
+    normalizeUserName(loadedPlanIdentity?.authorName ?? '') !== normalizeUserName(userName);
+
+  const handleStartEditingSharedPlan = () => {
+    setIsEditingSharedPlan(true);
+    if (!userName) setIsUserModalOpen(true);
+  };
+
+  // 모바일 전체 화면 검색 (브라우저/안드로이드 뒤로가기로 닫힘)
+  const openMobileSearch = (resume = false) => {
+    setSelectedSearchPlace(null);
+    if (!resume) setMobileSearchSession((n) => n + 1);
+    searchOverlay.open('search');
+  };
+
+  const closeMobileSearch = () => {
+    void searchOverlay.close();
+  };
+
+  const handleSelectMobileSearchPlace = (place: Place) => {
+    handleSelectSearchPlace(place);
+    closeMobileSearch();
+  };
+
+  const handleShowItineraryFromSearch = () => {
+    setMobileSheetState('half');
+    closeMobileSearch();
   };
 
   const handleAddPlaceFromSearch = (place: Place) => {
@@ -460,7 +519,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           <p className="text-xs text-slate-400">{error || '존재하지 않는 일정이거나 삭제되었을 수 있습니다.'}</p>
           <Link
             href="/"
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition-all shadow-md mt-2"
+            className="px-4 py-2 bg-emerald-400 hover:bg-emerald-300 text-emerald-950 rounded-xl text-xs font-semibold transition-all shadow-md mt-2"
           >
             새 일정 작성하러 가기
           </Link>
@@ -473,42 +532,69 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
     <div className="flex flex-col md:flex-row h-[100dvh] min-h-[100svh] w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans antialiased">
       {/* Desktop Left Sidebar Panel */}
       <aside className="hidden md:flex w-[420px] lg:w-[460px] flex-col border-r border-slate-800/80 bg-slate-950 z-20 shrink-0 shadow-2xl">
-        <ItinerarySidebar
-          planTitle={planTitle}
-          setPlanTitle={setPlanTitle}
-          days={days}
-          setDays={setDays}
-          activeDayIndex={activeDayIndex}
-          setActiveDayIndex={handleActiveDayChange}
-          onSelectBlock={handleSelectBlock}
-          routes={routes}
-          planId={currentPlanId}
-          authorName={authorName}
-          userName={userName}
-          onChangeUserName={() => setIsChangeNameMode(true)}
-          onPlanSaved={handlePlanSaved}
-          onLoadPlan={handleLoadPlan}
-          onNewPlan={handleNewPlan}
-          onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
-          onRequestMapView={() => mapRef.current?.getMapView() || null}
-          onSelectSearchPlace={handleSelectSearchPlace}
-          loadedPlanIdentity={loadedPlanIdentity}
-        />
+        {isViewingSharedPlan ? (
+          <SharedPlanSidebar
+            planTitle={planTitle}
+            authorName={authorName}
+            days={days}
+            activeDayIndex={activeDayIndex}
+            setActiveDayIndex={handleActiveDayChange}
+            routes={routes}
+            onSelectBlock={handleSelectBlock}
+            onStartEditing={handleStartEditingSharedPlan}
+          />
+        ) : (
+          <ItinerarySidebar
+            planTitle={planTitle}
+            setPlanTitle={setPlanTitle}
+            days={days}
+            setDays={setDays}
+            activeDayIndex={activeDayIndex}
+            setActiveDayIndex={handleActiveDayChange}
+            onSelectBlock={handleSelectBlock}
+            routes={routes}
+            drivingRoutes={drivingRoutes}
+            planId={currentPlanId}
+            authorName={authorName}
+            userName={userName}
+            onChangeUserName={() => setIsChangeNameMode(true)}
+            onPlanSaved={handlePlanSaved}
+            onLoadPlan={handleLoadPlan}
+            onNewPlan={handleNewPlan}
+            onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
+            onRequestMapView={() => mapRef.current?.getMapView() || null}
+            onSelectSearchPlace={handleSelectSearchPlace}
+            loadedPlanIdentity={loadedPlanIdentity}
+          />
+        )}
       </aside>
 
-      {/* Mobile Dedicated Route Summary Card (Normal document flow, visible on mobile only) */}
-      <div className="shrink-0 md:hidden w-full z-10">
-        <RouteSummaryCard
-          routes={routes}
-          routeSource={routeSource}
-          calculatedAt={calculatedAt}
-          onForceRefreshRoute={handleForceRefreshRoute}
-          isRefreshingRoute={isRefreshingRoute}
-          refreshCooldownSeconds={refreshCooldownSeconds}
-          variant="mobile"
-          blockCount={currentBlocks.length}
-        />
-      </div>
+      {/* Mobile Top Bar: 제목 · 공유 · ⋯ 일정 관리 메뉴 */}
+      <MobileTopBar
+        planTitle={planTitle}
+        setPlanTitle={setPlanTitle}
+        days={days}
+        setDays={setDays}
+        activeDayIndex={activeDayIndex}
+        setActiveDayIndex={handleActiveDayChange}
+        routes={routes}
+        drivingRoutes={drivingRoutes}
+        planId={currentPlanId}
+        authorName={authorName}
+        userName={userName}
+        onChangeUserName={() => setIsChangeNameMode(true)}
+        onPlanSaved={handlePlanSaved}
+        onLoadPlan={handleLoadPlan}
+        onNewPlan={handleNewPlan}
+        onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
+        onRequestMapView={() => mapRef.current?.getMapView() || null}
+        loadedPlanIdentity={loadedPlanIdentity}
+        onForceRefreshRoute={handleForceRefreshRoute}
+        isRefreshingRoute={isRefreshingRoute}
+        refreshCooldownSeconds={refreshCooldownSeconds}
+        readOnly={isViewingSharedPlan}
+        onStartEditing={handleStartEditingSharedPlan}
+      />
 
       {/* Main Map View Area */}
       <main className="flex-1 relative h-full w-full bg-slate-900 overflow-hidden">
@@ -528,6 +614,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           onForceRefreshRoute={handleForceRefreshRoute}
           isRefreshingRoute={isRefreshingRoute}
           refreshCooldownSeconds={refreshCooldownSeconds}
+          getViewportInsets={getMapViewportInsets}
         />
       </main>
 
@@ -545,6 +632,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           setActiveDayIndex={handleActiveDayChange}
           onSelectBlock={handleSelectBlock}
           routes={routes}
+          drivingRoutes={drivingRoutes}
           planId={currentPlanId}
           authorName={authorName}
           userName={userName}
@@ -554,17 +642,31 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           onNewPlan={handleNewPlan}
           onDeleteCurrentActivePlan={handleDeleteCurrentActivePlan}
           onRequestMapView={() => mapRef.current?.getMapView() || null}
-          onSelectSearchPlace={handleSelectSearchPlace}
+          onOpenSearch={() => openMobileSearch()}
+          onReturnToSearch={() => openMobileSearch(true)}
           selectedSearchPlace={selectedSearchPlace}
           onClearSelectedSearchPlace={() => setSelectedSearchPlace(null)}
           onAddPlaceFromSearch={handleAddPlaceFromSearch}
-          mobilePanelTab={mobilePanelTab}
-          setMobilePanelTab={setMobilePanelTab}
           mobileSheetState={mobileSheetState}
           setMobileSheetState={setMobileSheetState}
           loadedPlanIdentity={loadedPlanIdentity}
+          readOnly={isViewingSharedPlan}
+          onStartEditing={handleStartEditingSharedPlan}
         />
       </div>
+
+      {/* Mobile Full-screen Place Search */}
+      <MobileSearchScreen
+        isOpen={isMobileSearchOpen}
+        sessionId={mobileSearchSession}
+        days={days}
+        activeDayIndex={activeDayIndex}
+        onChangeDay={handleActiveDayChange}
+        onAddPlace={handleAddPlaceFromSearch}
+        onSelectPlace={handleSelectMobileSearchPlace}
+        onClose={closeMobileSearch}
+        onShowItinerary={handleShowItineraryFromSearch}
+      />
 
       {/* User Name Entrance / Edit Modal */}
       <UserNameModal
