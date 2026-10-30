@@ -47,11 +47,7 @@ export default function SortableBlockItem({
 
   const modeButtonClass = (mode: TravelMode) =>
     `inline-flex items-center gap-1.5 px-3 min-h-[36px] md:min-h-[28px] rounded-full text-xs md:text-[11px] font-semibold transition-all ${
-      travelMode === mode
-        ? mode === 'walking'
-          ? 'bg-sky-400 text-sky-950'
-          : 'bg-emerald-400 text-emerald-950'
-        : 'text-slate-400 hover:text-slate-200'
+      travelMode === mode ? 'bg-emerald-400 text-emerald-950' : 'text-slate-400 hover:text-slate-200'
     }`;
 
   return (
@@ -93,7 +89,7 @@ export default function SortableBlockItem({
               href={naverSearchUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden md:flex p-2 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-all min-h-[44px] min-w-[44px] items-center justify-center"
+              className="hidden md:flex p-2 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition-all min-h-[44px] min-w-[44px] items-center justify-center"
               title="네이버 지도 사진·리뷰 보기 (새 탭)"
             >
               <ExternalLink className="w-4 h-4" />

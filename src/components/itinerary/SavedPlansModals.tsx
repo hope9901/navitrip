@@ -32,7 +32,7 @@ export default function SavedPlansModals({ actions }: SavedPlansModalsProps) {
         <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-md p-5 flex flex-col gap-4 shadow-2xl">
           <div className="flex items-center justify-between pb-2 border-b border-slate-800">
             <div className="flex items-center gap-2 text-white font-bold text-sm">
-              <FolderOpen className="w-4 h-4 text-sky-400" />
+              <FolderOpen className="w-4 h-4 text-emerald-400" />
               <span>
                 {isAdmin ? '👑 [어드민 관리] 저장된 전체 여행 일정' : `[${userName}] 님의 저장된 여행 일정`}
               </span>
@@ -50,7 +50,7 @@ export default function SavedPlansModals({ actions }: SavedPlansModalsProps) {
           <div className="flex flex-col gap-2 max-h-80 overflow-y-auto custom-scrollbar">
             {loadingPlansList ? (
               <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
-                <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
+                <Loader2 className="w-6 h-6 text-emerald-400 animate-spin" />
                 <span>{isAdmin ? '전체 저장 일정을 조회하는 중입니다...' : `'${userName}' 님의 저장된 일정을 조회하는 중입니다...`}</span>
               </div>
             ) : savedPlansList.length === 0 ? (
@@ -68,7 +68,7 @@ export default function SavedPlansModals({ actions }: SavedPlansModalsProps) {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className="text-xs font-bold text-slate-100 group-hover:text-sky-400 transition-colors truncate">
+                        <h4 className="text-xs font-bold text-slate-100 group-hover:text-emerald-400 transition-colors truncate">
                           {planItem.title}
                         </h4>
                         {planItem.authorName && (
@@ -95,7 +95,7 @@ export default function SavedPlansModals({ actions }: SavedPlansModalsProps) {
                       <button
                         type="button"
                         onClick={() => handleSelectSavedPlan(planItem.id)}
-                        className="px-2.5 py-1.5 bg-sky-600/90 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-all shrink-0 active:scale-95"
+                        className="px-2.5 py-1.5 bg-emerald-400 hover:bg-emerald-300 text-emerald-950 rounded-lg text-xs font-semibold transition-all shrink-0 active:scale-95"
                       >
                         불러오기
                       </button>

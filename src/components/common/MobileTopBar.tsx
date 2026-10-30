@@ -15,10 +15,14 @@ import {
   ShieldCheck,
   Sparkles,
   AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 import { usePlanActions, PlanActionsOptions } from '../itinerary/usePlanActions';
 import SavedPlansModals from '../itinerary/SavedPlansModals';
 import { useHistoryOverlay } from '@/lib/useHistoryOverlay';
+
+// 지도 위에서 상단 바가 덮는 높이(px): 상단 여백 12 + 바 56 + 여유 8
+export const MOBILE_TOP_BAR_INSET = 76;
 
 interface MobileTopBarProps extends PlanActionsOptions {
   onChangeUserName?: () => void;
@@ -103,7 +107,18 @@ export default function MobileTopBar(props: MobileTopBarProps) {
     : null;
 
   // 메뉴를 닫는 history 이동이 끝난 뒤 실행해야 페이지 이동(새 일정 등)과 충돌하지 않는다
+  // Day 삭제: 메뉴에서 한 번 누르면 확인 상태, 한 번 더 누르면 삭제
+  const [isConfirmingDayDelete, setIsConfirmingDayDelete] = useState(false);
+  const canDeleteDay = !readOnly && days.length > 1;
+
+  const deleteActiveDay = () => {
+    const dayIdx = props.activeDayIndex;
+    props.setDays((prev) => prev.filter((_, idx) => idx !== dayIdx).map((d, idx) => ({ ...d, day: idx + 1 })));
+    props.setActiveDayIndex(Math.max(0, Math.min(dayIdx, days.length - 2)));
+  };
+
   const runFromMenu = async (action?: () => void) => {
+    setIsConfirmingDayDelete(false);
     await closeOverlay();
     action?.();
   };
@@ -137,7 +152,7 @@ export default function MobileTopBar(props: MobileTopBarProps) {
           {readOnly ? (
             <div className="flex-1 min-w-0 h-14 px-4 flex flex-col justify-center rounded-2xl bg-slate-950/95 border border-slate-800 shadow-xl backdrop-blur-md">
               <div className="text-[15px] font-bold text-slate-100 truncate">{planTitle || '제목 없는 일정'}</div>
-              <div className={`text-xs truncate ${isSharedOriginal ? 'text-amber-300' : 'text-slate-400'}`}>{subtitle}</div>
+              <div className={`text-xs truncate ${isSharedOriginal ? 'text-slate-300' : 'text-slate-400'}`}>{subtitle}</div>
             </div>
           ) : (
             <button
@@ -147,7 +162,7 @@ export default function MobileTopBar(props: MobileTopBarProps) {
               className="flex-1 min-w-0 h-14 px-4 rounded-2xl bg-slate-950/95 border border-slate-800 text-left shadow-xl backdrop-blur-md"
             >
               <div className="text-[15px] font-bold text-slate-100 truncate">{planTitle || '제목 없는 일정'}</div>
-              <div className={`text-xs truncate ${isSharedOriginal ? 'text-amber-300' : 'text-slate-400'}`}>{subtitle}</div>
+              <div className={`text-xs truncate ${isSharedOriginal ? 'text-slate-300' : 'text-slate-400'}`}>{subtitle}</div>
             </button>
           )}
 
@@ -169,7 +184,10 @@ export default function MobileTopBar(props: MobileTopBarProps) {
 
           <button
             type="button"
-            onClick={() => openOverlay('menu')}
+            onClick={() => {
+              setIsConfirmingDayDelete(false);
+              openOverlay('menu');
+            }}
             aria-label="일정 관리 메뉴"
             aria-haspopup="dialog"
             className="w-14 h-14 shrink-0 rounded-2xl bg-slate-950/95 border border-slate-800 text-slate-100 flex items-center justify-center shadow-xl backdrop-blur-md active:scale-95 transition-transform"
@@ -242,9 +260,23 @@ export default function MobileTopBar(props: MobileTopBarProps) {
             )}
 
             <button type="button" onClick={() => runFromMenu(handleOpenLoadModal)} className={menuItemClass}>
-              <FolderOpen className="w-5 h-5 text-sky-400 shrink-0" />
+              <FolderOpen className="w-5 h-5 text-slate-300 shrink-0" />
               <span>저장된 일정 불러오기</span>
             </button>
+
+            {canDeleteDay && (
+              <button
+                type="button"
+                onClick={() => (isConfirmingDayDelete ? runFromMenu(deleteActiveDay) : setIsConfirmingDayDelete(true))}
+                className={`${menuItemClass} ${isConfirmingDayDelete ? 'text-rose-300' : ''}`}
+              >
+                <Trash2 className="w-5 h-5 text-rose-400 shrink-0" />
+                <span className="flex flex-col min-w-0">
+                  <span>{isConfirmingDayDelete ? `한 번 더 누르면 Day ${props.activeDayIndex + 1} 삭제` : `Day ${props.activeDayIndex + 1} 삭제`}</span>
+                  <span className="text-xs text-slate-400">이 날에 담긴 장소 {activeBlockCount}곳도 함께 지워져요</span>
+                </span>
+              </button>
+            )}
 
             {onNewPlan && (
               <button type="button" onClick={() => runFromMenu(onNewPlan)} className={menuItemClass}>
@@ -273,7 +305,7 @@ export default function MobileTopBar(props: MobileTopBarProps) {
             {onChangeUserName && (
               <button type="button" onClick={() => runFromMenu(onChangeUserName)} className={menuItemClass}>
                 {isAdmin ? (
-                  <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0" />
+                  <ShieldCheck className="w-5 h-5 text-slate-300 shrink-0" />
                 ) : (
                   <User className="w-5 h-5 text-slate-300 shrink-0" />
                 )}

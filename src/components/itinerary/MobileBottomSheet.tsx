@@ -16,10 +16,10 @@ const SHEET_STATES: MobileSheetState[] = ['peek', 'half', 'full'];
 const DRAG_START_THRESHOLD_PX = 6;
 const FLICK_VELOCITY_PX_PER_MS = 0.5;
 
-// 아래 높이 클래스(getHeightClass)와 같은 기준의 픽셀 값
-function getSnapHeights(): Record<MobileSheetState, number> {
+// 아래 높이 클래스(getHeightClass)와 같은 기준의 픽셀 값 (지도 보이는 영역 계산에도 사용)
+export function getSnapHeights(): Record<MobileSheetState, number> {
   const vh = window.innerHeight;
-  return { peek: 92, half: Math.round(vh * 0.52), full: vh - 80 };
+  return { peek: 120, half: Math.round(vh * 0.52), full: vh - 80 };
 }
 
 function pickSnapState(height: number, velocity: number): MobileSheetState {
@@ -185,7 +185,10 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
   // Search result preview mode (map focused on a search result)
   if (props.selectedSearchPlace) {
     return (
-      <div className="fixed inset-x-0 bottom-0 z-30 md:hidden rounded-t-3xl overflow-hidden border-t border-slate-800 shadow-2xl">
+      <div
+        data-mobile-preview-card
+        className="fixed inset-x-0 bottom-0 z-30 md:hidden rounded-t-3xl overflow-hidden border-t border-slate-800 shadow-2xl"
+      >
         <SearchPlacePreviewCard
           place={props.selectedSearchPlace}
           onAddPlace={(place) => props.onAddPlaceFromSearch?.(place)}
@@ -199,9 +202,15 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
   }
 
   const getHeightClass = () => {
-    if (sheetState === 'peek') return 'h-[92px]';
+    if (sheetState === 'peek') return 'h-[120px]';
     if (sheetState === 'full') return 'h-[calc(100dvh-80px)]'; // 상단 바(MobileTopBar) 아래까지
     return 'h-[52dvh]';
+  };
+
+  const handleAddDay = () => {
+    const newIndex = props.days.length;
+    props.setDays((prev) => [...prev, { day: prev.length + 1, blocks: [] }]);
+    props.setActiveDayIndex(newIndex);
   };
 
   const cycleSheetState = () => {
@@ -222,7 +231,7 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
       <div
         onPointerDown={handleDragPointerDown}
         onClickCapture={handleHeaderClickCapture}
-        className="shrink-0 px-4 pb-2 border-b border-slate-900 touch-none select-none"
+        className="shrink-0 px-4 pb-1.5 border-b border-slate-900 touch-pan-x select-none"
       >
         <button
           type="button"
@@ -234,23 +243,39 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
           <span className="w-10 h-1.5 bg-slate-700 rounded-full" />
         </button>
 
+        {/* Day 선택 (시트를 접어도 항상 보임) + 주요 동작 */}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={cycleSheetState}
-            aria-label={sheetState === 'full' ? '일정 목록 접기' : '일정 목록 더 펼치기'}
-            className="flex-1 min-w-0 min-h-[48px] flex items-center gap-2 text-left"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-bold text-slate-100">Day {props.activeDayIndex + 1} 일정</div>
-              <div className="text-xs text-slate-400 truncate">{summary}</div>
-            </div>
-            {sheetState === 'full' ? (
-              <ChevronDown className="w-5 h-5 text-slate-400 shrink-0" />
-            ) : (
-              <ChevronUp className="w-5 h-5 text-slate-400 shrink-0" />
+          <div role="tablist" aria-label="여행 날짜" className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+            {props.days.map((_, idx) => {
+              const isActive = idx === props.activeDayIndex;
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => props.setActiveDayIndex(idx)}
+                  className={`shrink-0 min-h-[40px] px-3.5 rounded-full text-sm font-bold border transition-all ${
+                    isActive
+                      ? 'bg-emerald-400 border-emerald-400 text-emerald-950'
+                      : 'bg-slate-900 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  Day {idx + 1}
+                </button>
+              );
+            })}
+            {!props.readOnly && (
+              <button
+                type="button"
+                onClick={handleAddDay}
+                aria-label="일차 추가"
+                className="shrink-0 w-10 h-10 rounded-full border border-dashed border-slate-700 text-emerald-400 flex items-center justify-center"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             )}
-          </button>
+          </div>
 
           {props.readOnly ? (
             <button
@@ -259,7 +284,7 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
               className="shrink-0 inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full bg-emerald-400 text-emerald-950 text-sm font-bold shadow-md active:scale-95 transition-transform"
             >
               <Edit3 className="w-4 h-4" />
-              <span>내 일정으로 편집</span>
+              <span>편집</span>
             </button>
           ) : (
             <button
@@ -272,6 +297,20 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
             </button>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={cycleSheetState}
+          aria-label={sheetState === 'full' ? '일정 목록 접기' : '일정 목록 더 펼치기'}
+          className="w-full min-h-[32px] mt-0.5 flex items-center gap-2 text-left"
+        >
+          <span className="flex-1 min-w-0 text-xs text-slate-400 truncate">{summary}</span>
+          {sheetState === 'full' ? (
+            <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
+          ) : (
+            <ChevronUp className="w-4 h-4 text-slate-500 shrink-0" />
+          )}
+        </button>
       </div>
 
       {/* Itinerary Panel */}
@@ -283,6 +322,7 @@ export default function MobileBottomSheet(props: MobileBottomSheetProps) {
             setActiveDayIndex={props.setActiveDayIndex}
             routes={props.routes}
             onSelectBlock={props.onSelectBlock}
+            hideDayTabs
           />
         ) : (
           <ItinerarySidebar

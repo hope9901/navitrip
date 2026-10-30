@@ -11,6 +11,7 @@ interface SharedItineraryViewProps {
   setActiveDayIndex: (idx: number) => void;
   routes: RouteSegment[];
   onSelectBlock: (block: ItineraryBlock) => void;
+  hideDayTabs?: boolean; // 모바일 시트처럼 Day 선택이 바깥에 있을 때
 }
 
 /**
@@ -23,13 +24,14 @@ export default function SharedItineraryView({
   setActiveDayIndex,
   routes,
   onSelectBlock,
+  hideDayTabs = false,
 }: SharedItineraryViewProps) {
   const blocks = days[activeDayIndex]?.blocks || [];
 
   return (
     <div className="flex flex-col h-full text-slate-100">
       {/* Day Tabs */}
-      <div role="tablist" aria-label="여행 날짜" className="flex items-center gap-2 px-4 pt-3 pb-2 overflow-x-auto custom-scrollbar shrink-0">
+      <div role="tablist" aria-label="여행 날짜" className={`${hideDayTabs ? 'hidden' : 'flex'} items-center gap-2 px-4 pt-3 pb-2 overflow-x-auto custom-scrollbar shrink-0`}>
         {days.map((_, idx) => {
           const isActive = idx === activeDayIndex;
           return (
@@ -85,7 +87,7 @@ export default function SharedItineraryView({
               {next && (
                 <div className="ml-4 pl-7 py-1.5 border-l-2 border-dashed border-slate-700 flex items-center gap-2">
                   <span className="flex-1 min-w-0 text-xs text-slate-400 flex items-center gap-1.5">
-                    <ModeIcon className={`w-3.5 h-3.5 shrink-0 ${mode === 'walking' ? 'text-sky-400' : 'text-emerald-400'}`} />
+                    <ModeIcon className={`w-3.5 h-3.5 shrink-0 ${mode === 'walking' ? 'text-slate-300' : 'text-emerald-400'}`} />
                     <span className="truncate">
                       {mode === 'walking'
                         ? '도보'

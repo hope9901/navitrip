@@ -190,7 +190,7 @@ export default function PlaceSearchCard({
         <button
           type="submit"
           disabled={loading || !query.trim()}
-          className="absolute right-1.5 top-1.5 bottom-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 shadow-md active:scale-95 min-h-[36px]"
+          className="absolute right-1.5 top-1.5 bottom-1.5 px-3.5 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-50 disabled:hover:bg-emerald-400 text-emerald-950 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 shadow-md active:scale-95 min-h-[36px]"
         >
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '검색'}
         </button>
@@ -198,8 +198,8 @@ export default function PlaceSearchCard({
 
       {/* Partial Warning Banner */}
       {warningMsg && (
-        <div className="px-3 py-1.5 text-[11px] bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-lg flex items-center gap-1.5">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+        <div className="px-3 py-1.5 text-[11px] bg-slate-900 border border-slate-800 text-slate-300 rounded-lg flex items-center gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-slate-400" />
           <span>{warningMsg}</span>
         </div>
       )}
@@ -250,7 +250,7 @@ export default function PlaceSearchCard({
                     >
                       <span
                         className={`shrink-0 w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center ${
-                          isAddressType ? 'text-sky-400' : 'text-emerald-400'
+                          isAddressType ? 'text-slate-300' : 'text-emerald-400'
                         }`}
                       >
                         {isAddressType ? <Navigation className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}

@@ -58,7 +58,7 @@ export default function SearchPlacePreviewCard({
           href={naverSearchUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="self-start inline-flex items-center gap-1 min-h-[32px] text-xs font-semibold text-sky-400 hover:text-sky-300"
+          className="self-start inline-flex items-center gap-1 min-h-[32px] text-xs font-semibold text-emerald-400 hover:text-emerald-300"
         >
           네이버 사진·리뷰 보기
           <ExternalLink className="w-3.5 h-3.5" />

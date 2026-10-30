@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useId } from 'react';
+import React, { useState, useId, useRef, useEffect } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -18,6 +18,7 @@ import {
 } from '@dnd-kit/sortable';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, SavedMapView, TravelMode } from '@/types/itinerary';
 import { countWalkingSegments } from '@/lib/travelMode';
+import { optimizeVisitOrder } from '@/lib/routeOptimizer';
 import SortableBlockItem from './SortableBlockItem';
 import SavedPlansModals from './SavedPlansModals';
 import { usePlanActions } from './usePlanActions';
@@ -27,9 +28,9 @@ import {
   Share2,
   Calendar,
   MapPin,
-  Navigation,
   Check,
   Sparkles,
+  WandSparkles,
   Save,
   FolderOpen,
   FolderPlus,
@@ -185,6 +186,57 @@ export default function ItinerarySidebar({
     });
   };
 
+  // 순서 자동 정렬 (첫 장소는 출발지로 고정, 직선거리 기준) + 되돌리기
+  const [sortNotice, setSortNotice] = useState<{
+    message: string;
+    undo?: { dayIndex: number; blocks: ItineraryBlock[] };
+  } | null>(null);
+  const sortNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (sortNoticeTimerRef.current) clearTimeout(sortNoticeTimerRef.current);
+  }, []);
+
+  const showSortNotice = (notice: NonNullable<typeof sortNotice>) => {
+    if (sortNoticeTimerRef.current) clearTimeout(sortNoticeTimerRef.current);
+    setSortNotice(notice);
+    sortNoticeTimerRef.current = setTimeout(() => setSortNotice(null), 6000);
+  };
+
+  const handleAutoSort = () => {
+    const result = optimizeVisitOrder(blocks);
+    if (!result.changed) {
+      showSortNotice({ message: '이미 가장 짧은 순서예요' });
+      return;
+    }
+    // 순서가 바뀌면 구간이 달라지므로, 구간별로 고른 이동 수단은 기본값(차량)으로 되돌린다
+    const reordered = result.items.map((b) => ({ ...b, travelModeToNext: undefined }));
+    const previousBlocks = blocks;
+    const dayIndex = activeDayIndex;
+    setDays((prev) => {
+      const next = [...prev];
+      next[dayIndex] = { ...next[dayIndex], blocks: reordered };
+      return next;
+    });
+    const savedKm = (result.savedMeters / 1000).toFixed(1);
+    showSortNotice({
+      message: `가까운 순서로 정렬했어요 (직선거리 약 ${savedKm}km 단축)`,
+      undo: { dayIndex, blocks: previousBlocks },
+    });
+  };
+
+  const handleUndoSort = () => {
+    const undo = sortNotice?.undo;
+    if (!undo) return;
+    setDays((prev) => {
+      const next = [...prev];
+      if (next[undo.dayIndex]) next[undo.dayIndex] = { ...next[undo.dayIndex], blocks: undo.blocks };
+      return next;
+    });
+    if (sortNoticeTimerRef.current) clearTimeout(sortNoticeTimerRef.current);
+    setSortNotice(null);
+  };
+
   const handleChangeTravelMode = (blockId: string, mode: TravelMode) => {
     setDays((prev) => {
       const next = [...prev];
@@ -244,12 +296,12 @@ export default function ItinerarySidebar({
           <div
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl font-semibold text-xs shrink-0 ${
               isAdmin
-                ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-md'
+                ? 'bg-slate-800 border border-slate-700 text-slate-200 shadow-md'
                 : 'bg-emerald-500/10 border border-emerald-500/25 text-emerald-400'
             }`}
           >
             {isAdmin ? (
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <ShieldCheck className="w-3.5 h-3.5 text-slate-300 shrink-0" />
             ) : (
               <User className="w-3 h-3 shrink-0 text-emerald-400" />
             )}
@@ -284,7 +336,7 @@ export default function ItinerarySidebar({
             className="inline-flex items-center gap-1 px-2 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-xs font-semibold border border-slate-800 transition-all shrink-0 active:scale-95"
             title="저장된 일정 불러오기"
           >
-            <FolderOpen className="w-3.5 h-3.5 text-sky-400" />
+            <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />
             <span>불러오기</span>
           </button>
         </div>
@@ -314,12 +366,12 @@ export default function ItinerarySidebar({
             type="button"
             onClick={() => executeSaveOrShare('share')}
             disabled={isSaving}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shrink-0 active:scale-95"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-400 hover:bg-emerald-300 text-emerald-950 rounded-xl text-xs font-bold transition-all shadow-md shrink-0 active:scale-95"
             title="공유 링크 생성"
           >
             {copiedShareUrl ? (
               <>
-                <Check className="w-3.5 h-3.5 text-white" />
+                <Check className="w-3.5 h-3.5 text-emerald-950" />
                 <span>복사완료</span>
               </>
             ) : (
@@ -352,7 +404,7 @@ export default function ItinerarySidebar({
             }`}
           />
           {isSharedOriginal ? (
-            <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full shrink-0">
+            <span className="text-[10px] font-bold text-slate-300 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-full shrink-0">
               공유받은 원본 (작성자: {authorName})
             </span>
           ) : authorName ? (
@@ -364,11 +416,11 @@ export default function ItinerarySidebar({
 
         {/* Title change or Shared original hint banner */}
         {isSharedOriginal ? (
-          <div className="text-[11px] font-medium text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1">
+          <div className="text-[11px] font-medium text-slate-300 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg flex items-center gap-1">
             <span>💡 공유받은 일정입니다. 저장 시 내 일정으로 새로 저장됩니다.</span>
           </div>
         ) : isTitleChanged ? (
-          <div className="text-[11px] font-medium text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1">
+          <div className="text-[11px] font-medium text-slate-300 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg flex items-center gap-1">
             <span>💡 제목이 변경되어 새 일정으로 저장됩니다.</span>
           </div>
         ) : null}
@@ -391,8 +443,8 @@ export default function ItinerarySidebar({
         </>
       )}
 
-      {/* Day Selector Tabs */}
-      <div className="flex items-center gap-2 md:gap-1.5 overflow-x-auto pt-2 pr-2 md:pt-1 pb-2 md:pb-1 border-b border-slate-800/80 custom-scrollbar shrink-0">
+      {/* Day Selector Tabs (모바일은 시트 머리에 Day 선택이 있어 숨김) */}
+      <div className={`${isMobileMode ? 'hidden' : 'flex'} items-center gap-2 md:gap-1.5 overflow-x-auto pt-2 pr-2 md:pt-1 pb-2 md:pb-1 border-b border-slate-800/80 custom-scrollbar shrink-0`}>
         {days.map((dayItem, idx) => {
           const isPendingDelete = pendingDeleteDayIdx === idx;
           const isActive = activeDayIndex === idx;
@@ -406,7 +458,7 @@ export default function ItinerarySidebar({
                   isPendingDelete
                     ? 'bg-rose-600 text-white border border-rose-500 shadow-md animate-pulse ring-2 ring-rose-500/50'
                     : isActive
-                    ? 'bg-emerald-600 text-white shadow-md'
+                    ? 'bg-emerald-400 text-emerald-950 shadow-md'
                     : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800'
                 }`}
               >
@@ -460,28 +512,61 @@ export default function ItinerarySidebar({
         </div>
       )}
 
-      {/* Day Summary Badge */}
+      {/* Day Summary & Auto Sort */}
       {blocks.length > 0 && (
-        <div className="flex items-center justify-between px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-xl text-xs shrink-0">
-          <span className="text-slate-400 flex items-center gap-1">
-            <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-            <span>총 {blocks.length}개 장소</span>
-          </span>
-          {routes.length > 0 && (
-            <span className="text-emerald-400 font-semibold flex items-center gap-1">
-              <Navigation className="w-3 h-3" />
-              {hasDrivingSegments ? (
-                <span>
-                  {totalDayDistance >= 1000 ? `${(totalDayDistance / 1000).toFixed(1)}km` : `${totalDayDistance}m`}
-                  {' / '}
-                  {Math.floor(totalDayDurationSec / 3600) > 0 ? `${Math.floor(totalDayDurationSec / 3600)}시간 ` : ''}
-                  {Math.ceil((totalDayDurationSec % 3600) / 60)}분
-                  {walkingSegmentCount > 0 && <span className="text-slate-400 font-normal"> (도보 제외)</span>}
-                </span>
-              ) : (
-                <span>모두 도보 이동</span>
-              )}
+        <div className="flex flex-col gap-2 shrink-0">
+          <div className="flex items-center justify-between gap-2 pl-3 pr-1.5 py-1.5 bg-slate-900/60 border border-slate-800 rounded-xl text-xs">
+            <span className="min-w-0 text-slate-400 flex items-center gap-1 truncate">
+              <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="truncate">
+                {blocks.length}곳
+                {routes.length > 0 && (
+                  <span className="text-emerald-400 font-semibold">
+                    {' · '}
+                    {hasDrivingSegments ? (
+                      <>
+                        {totalDayDistance >= 1000 ? `${(totalDayDistance / 1000).toFixed(1)}km` : `${totalDayDistance}m`}
+                        {' / '}
+                        {Math.floor(totalDayDurationSec / 3600) > 0 ? `${Math.floor(totalDayDurationSec / 3600)}시간 ` : ''}
+                        {Math.ceil((totalDayDurationSec % 3600) / 60)}분
+                        {walkingSegmentCount > 0 && <span className="text-slate-400 font-normal"> (도보 제외)</span>}
+                      </>
+                    ) : (
+                      '모두 도보 이동'
+                    )}
+                  </span>
+                )}
+              </span>
             </span>
+            {blocks.length >= 3 && (
+              <button
+                type="button"
+                onClick={handleAutoSort}
+                title="첫 장소를 출발지로 두고, 직선거리 기준으로 가까운 순서로 정렬합니다"
+                className="shrink-0 inline-flex items-center gap-1 min-h-[36px] md:min-h-[28px] px-2.5 rounded-lg text-xs font-semibold text-emerald-400 hover:bg-slate-800 active:scale-95 transition-all"
+              >
+                <WandSparkles className="w-3.5 h-3.5" />
+                순서 자동 정렬
+              </button>
+            )}
+          </div>
+
+          {sortNotice && (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-2 pl-3 pr-1.5 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-200 animate-fadeIn"
+            >
+              <span className="min-w-0">{sortNotice.message}</span>
+              {sortNotice.undo && (
+                <button
+                  type="button"
+                  onClick={handleUndoSort}
+                  className="shrink-0 min-h-[36px] md:min-h-[28px] px-2.5 rounded-lg font-bold text-emerald-400 hover:bg-slate-800"
+                >
+                  되돌리기
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -2,16 +2,16 @@
 
 import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore, useCallback } from 'react';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
-import NaverMap, { NaverMapRefHandle } from '@/components/map/NaverMap';
+import NaverMap, { NaverMapRefHandle, MapViewportInsets } from '@/components/map/NaverMap';
 import Toast from '@/components/common/Toast';
-import MobileBottomSheet, { MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
+import MobileBottomSheet, { MobileSheetState, getSnapHeights } from '@/components/itinerary/MobileBottomSheet';
 import MobileSearchScreen from '@/components/search/MobileSearchScreen';
 import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
 import { createRouteSignature } from '@/lib/routeSignature';
 import { applyTravelModes } from '@/lib/travelMode';
 import { useHistoryOverlay } from '@/lib/useHistoryOverlay';
-import MobileTopBar from '@/components/common/MobileTopBar';
+import MobileTopBar, { MOBILE_TOP_BAR_INSET } from '@/components/common/MobileTopBar';
 import { LoadedPlanIdentity, PlanSaveResult } from '@/lib/supabase';
 
 const emptySubscribe = () => () => {};
@@ -61,6 +61,15 @@ export default function HomePage() {
   const isMobileSearchOpen = searchOverlay.overlay === 'search';
   const [mobileSearchSession, setMobileSearchSession] = useState(0);
   const [mobileSheetState, setMobileSheetState] = useState<MobileSheetState>('half');
+
+  // 모바일에서 지도를 덮는 상단 바·하단 시트(또는 검색 미리보기 카드) 높이.
+  // 장소로 이동하거나 전체 보기를 할 때 이 영역을 피해서 보이는 곳에 맞춘다.
+  const getMapViewportInsets = useCallback((): MapViewportInsets => {
+    if (!window.matchMedia('(max-width: 767px)').matches) return { top: 0, bottom: 0 };
+    const previewCard = document.querySelector<HTMLElement>('[data-mobile-preview-card]');
+    const bottom = previewCard ? previewCard.offsetHeight : getSnapHeights()[mobileSheetState];
+    return { top: MOBILE_TOP_BAR_INSET, bottom };
+  }, [mobileSheetState]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -287,6 +296,8 @@ export default function HomePage() {
   }, [currentBlocks, isRefreshingRoute, refreshCooldownSeconds, activeDayIndex]);
 
   const handleSelectBlock = (block: ItineraryBlock) => {
+    // 모바일: 시트를 내려서 지도에서 바로 보이게 한다 (목록 탭 → 시트 내리기 2번을 1번으로)
+    setMobileSheetState('peek');
     setSelectedSearchPlace(null);
     setSelectedPlace(block.place);
     setSelectedBlockId(block.id);
@@ -515,6 +526,7 @@ export default function HomePage() {
           onForceRefreshRoute={handleForceRefreshRoute}
           isRefreshingRoute={isRefreshingRoute}
           refreshCooldownSeconds={refreshCooldownSeconds}
+          getViewportInsets={getMapViewportInsets}
         />
       </main>
 

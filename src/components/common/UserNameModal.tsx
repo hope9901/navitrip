@@ -47,7 +47,7 @@ export default function UserNameModal({
       <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-sm p-6 flex flex-col gap-5 shadow-2xl relative max-h-[calc(100dvh-2rem)] overflow-y-auto custom-scrollbar">
         {/* Header Icon */}
         <div className="flex flex-col items-center text-center gap-2">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-400 flex items-center justify-center text-emerald-950 shadow-lg shadow-emerald-500/20">
             <User className="w-6 h-6" />
           </div>
           <h3 className="text-base font-extrabold text-white">
@@ -95,7 +95,7 @@ export default function UserNameModal({
             )}
             <button
               type="submit"
-              className="flex-1 py-3 md:py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md min-h-[44px] active:scale-95"
+              className="flex-1 py-3 md:py-2.5 bg-emerald-400 hover:bg-emerald-300 text-emerald-950 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md min-h-[44px] active:scale-95"
             >
               <span>{isChangeMode ? '변경하기' : '시작하기'}</span>
               {isChangeMode ? <Check className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}

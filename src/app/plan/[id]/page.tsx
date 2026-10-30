@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ItinerarySidebar from '@/components/itinerary/ItinerarySidebar';
 import SharedPlanSidebar from '@/components/itinerary/SharedPlanSidebar';
-import NaverMap, { NaverMapRefHandle } from '@/components/map/NaverMap';
+import NaverMap, { NaverMapRefHandle, MapViewportInsets } from '@/components/map/NaverMap';
 import Toast from '@/components/common/Toast';
-import MobileBottomSheet, { MobileSheetState } from '@/components/itinerary/MobileBottomSheet';
+import MobileBottomSheet, { MobileSheetState, getSnapHeights } from '@/components/itinerary/MobileBottomSheet';
 import MobileSearchScreen from '@/components/search/MobileSearchScreen';
 import UserNameModal from '@/components/common/UserNameModal';
 import { Place, ItineraryBlock, DayItinerary, RouteSegment, PlanData, MapFocusRequest } from '@/types/itinerary';
@@ -15,7 +15,7 @@ import { loadPlanFromDB, LoadedPlanIdentity, PlanSaveResult, normalizeUserName }
 import { createRouteSignature } from '@/lib/routeSignature';
 import { applyTravelModes } from '@/lib/travelMode';
 import { useHistoryOverlay } from '@/lib/useHistoryOverlay';
-import MobileTopBar from '@/components/common/MobileTopBar';
+import MobileTopBar, { MOBILE_TOP_BAR_INSET } from '@/components/common/MobileTopBar';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 interface PlanPageProps {
@@ -78,6 +78,15 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   const isMobileSearchOpen = searchOverlay.overlay === 'search';
   const [mobileSearchSession, setMobileSearchSession] = useState(0);
   const [mobileSheetState, setMobileSheetState] = useState<MobileSheetState>('half');
+
+  // 모바일에서 지도를 덮는 상단 바·하단 시트(또는 검색 미리보기 카드) 높이.
+  // 장소로 이동하거나 전체 보기를 할 때 이 영역을 피해서 보이는 곳에 맞춘다.
+  const getMapViewportInsets = useCallback((): MapViewportInsets => {
+    if (!window.matchMedia('(max-width: 767px)').matches) return { top: 0, bottom: 0 };
+    const previewCard = document.querySelector<HTMLElement>('[data-mobile-preview-card]');
+    const bottom = previewCard ? previewCard.offsetHeight : getSnapHeights()[mobileSheetState];
+    return { top: MOBILE_TOP_BAR_INSET, bottom };
+  }, [mobileSheetState]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -335,6 +344,8 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
   }, [currentBlocks, isRefreshingRoute, refreshCooldownSeconds, activeDayIndex]);
 
   const handleSelectBlock = (block: ItineraryBlock) => {
+    // 모바일: 시트를 내려서 지도에서 바로 보이게 한다 (목록 탭 → 시트 내리기 2번을 1번으로)
+    setMobileSheetState('peek');
     setSelectedSearchPlace(null);
     setSelectedPlace(block.place);
     setSelectedBlockId(block.id);
@@ -508,7 +519,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           <p className="text-xs text-slate-400">{error || '존재하지 않는 일정이거나 삭제되었을 수 있습니다.'}</p>
           <Link
             href="/"
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition-all shadow-md mt-2"
+            className="px-4 py-2 bg-emerald-400 hover:bg-emerald-300 text-emerald-950 rounded-xl text-xs font-semibold transition-all shadow-md mt-2"
           >
             새 일정 작성하러 가기
           </Link>
@@ -603,6 +614,7 @@ export default function SharedPlanPage({ params }: PlanPageProps) {
           onForceRefreshRoute={handleForceRefreshRoute}
           isRefreshingRoute={isRefreshingRoute}
           refreshCooldownSeconds={refreshCooldownSeconds}
+          getViewportInsets={getMapViewportInsets}
         />
       </main>
 

@@ -43,7 +43,7 @@ export default function SharedPlanSidebar({
   return (
     <div className="flex flex-col h-full bg-slate-950/95 border-r border-slate-800 text-slate-100 overflow-hidden">
       <div className="shrink-0 px-5 pt-5 pb-4 border-b border-slate-800/80 flex flex-col gap-3">
-        <span className="self-start inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+        <span className="self-start inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 text-xs font-semibold">
           <User className="w-3.5 h-3.5" />
           {authorName || '익명'}님이 공유한 여행
         </span>
